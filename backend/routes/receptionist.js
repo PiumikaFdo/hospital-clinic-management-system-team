@@ -48,12 +48,19 @@ router.get('/patients', authenticateToken, authorizeRoles('receptionist','admin'
 router.post('/patients', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
   try {
     const { first_name, last_name, email, phone, gender, date_of_birth, blood_group, address, doctor_id, appt_date, appt_time, reason } = req.body;
+
+    // Convert empty strings to null for optional integer/date fields
+    const doctorId   = (doctor_id   && doctor_id   !== '') ? parseInt(doctor_id, 10) : null;
+    const apptDate   = (appt_date   && appt_date   !== '') ? appt_date   : null;
+    const apptTime   = (appt_time   && appt_time   !== '') ? appt_time   : null;
+    const apptReason = (reason      && reason      !== '') ? reason      : null;
+
     await pool.query('CALL sp_register_patient_appointment(?,?,?,?,?,?,?,?,?,?,?,?,@pid,@aid)',
-      [first_name, last_name, email, phone, gender, date_of_birth, blood_group, address, doctor_id, appt_date, appt_time, reason]);
+      [first_name, last_name, email, phone, gender, date_of_birth || null, blood_group, address, doctorId, apptDate, apptTime, apptReason]);
     const [[ids]] = await pool.query('SELECT @pid AS patient_id, @aid AS appointment_id');
     res.status(201).json({ success: true, message: 'Patient registered and appointment booked', data: ids });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.sqlMessage || 'Registration failed' });
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Registration failed' });
   }
 });
 
