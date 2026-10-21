@@ -141,6 +141,12 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
     await pool.query('UPDATE appointments SET status=? WHERE appointment_id=?', [status, req.params.id]);
+    if (req.user && req.user.user_id) {
+      await pool.query(
+        'UPDATE audit_logs SET user_id=?, ip_address=? WHERE table_name="appointments" AND record_id=? AND user_id IS NULL ORDER BY log_id DESC LIMIT 1',
+        [req.user.user_id, req.ip || null, req.params.id]
+      );
+    }
     res.json({ success: true, message: 'Appointment status updated' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
