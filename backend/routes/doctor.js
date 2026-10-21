@@ -92,25 +92,48 @@ router.post('/records', authenticateToken, authorizeRoles('doctor'), async (req,
   }
 });
 
-// GET /api/doctor/prescriptions (utilizes idx_doctor_prescriptions_doc_date)
+// GET /api/doctor/prescriptions (utilizes idx_doctor_prescriptions_doc_date and tracks real-time dispensing status)
 router.get('/prescriptions', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
   try {
     const { date, start_date, end_date, status, search } = req.query;
-    let query = 'SELECT * FROM vw_prescription_details WHERE doctor_id=?';
+    let query = `
+      SELECT vd.*,
+             pat.patient_code,
+             pat.blood_group,
+             pat.allergies,
+             disp.dispensed_at,
+             disp.dispensed_by_name,
+             disp.pharmacist_notes
+      FROM vw_prescription_details vd
+      JOIN patients pat ON vd.patient_id = pat.patient_id
+      LEFT JOIN (
+        SELECT 
+          msl.reference_id AS prescription_id,
+          MAX(msl.logged_at) AS dispensed_at,
+          MAX(CONCAT(u.first_name, ' ', u.last_name)) AS dispensed_by_name,
+          MAX(msl.notes) AS pharmacist_notes
+        FROM medicine_stock_log msl
+        JOIN users u ON msl.logged_by = u.user_id
+        WHERE msl.reference_type = 'PRESCRIPTION'
+        GROUP BY msl.reference_id
+      ) disp ON vd.prescription_id = disp.prescription_id
+      WHERE vd.doctor_id = ?
+    `;
     const params = [req.user.staff_id];
-    if (date) { query += ' AND prescription_date = ?'; params.push(date); }
-    if (start_date) { query += ' AND prescription_date >= ?'; params.push(start_date); }
-    if (end_date) { query += ' AND prescription_date <= ?'; params.push(end_date); }
-    if (status && status !== 'ALL') { query += ' AND status = ?'; params.push(status); }
+    if (date) { query += ' AND vd.prescription_date = ?'; params.push(date); }
+    if (start_date) { query += ' AND vd.prescription_date >= ?'; params.push(start_date); }
+    if (end_date) { query += ' AND vd.prescription_date <= ?'; params.push(end_date); }
+    if (status && status !== 'ALL') { query += ' AND vd.status = ?'; params.push(status); }
     if (search) {
-      query += ' AND (patient_name LIKE ? OR medicine_name LIKE ?)';
+      query += ' AND (vd.patient_name LIKE ? OR vd.medicine_name LIKE ? OR pat.patient_code LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s);
+      params.push(s, s, s);
     }
-    query += ' ORDER BY prescription_date DESC';
+    query += ' ORDER BY vd.prescription_date DESC, vd.prescription_id DESC';
     const [rows] = await pool.query(query, params);
     res.json({ success: true, data: rows });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

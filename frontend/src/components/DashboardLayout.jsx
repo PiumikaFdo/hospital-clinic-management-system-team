@@ -30,10 +30,10 @@ const DashboardLayout = ({ title, subtitle, children }) => {
   });
 
   return (
-    <div className="dashboard-layout">
+    <div className="dashboard-layout h-screen w-screen overflow-hidden flex bg-slate-50">
       <Sidebar />
-      <div className="main-content">
-        <header className="topbar">
+      <div className="main-content flex-1 flex flex-col h-screen overflow-y-auto min-w-0 bg-slate-50">
+        <header className="topbar sticky top-0 z-50 shrink-0">
           <div className="topbar-left">
             <h1 className="topbar-title">{title}</h1>
             {subtitle && <p className="topbar-subtitle">{subtitle}</p>}
@@ -64,7 +64,7 @@ const DashboardLayout = ({ title, subtitle, children }) => {
           </div>
         </header>
 
-        <main className="page-content animate-fade-in">
+        <main className="page-content flex-1 p-6 md:p-8 animate-fade-in w-full max-w-7xl mx-auto">
           {children}
         </main>
       </div>
