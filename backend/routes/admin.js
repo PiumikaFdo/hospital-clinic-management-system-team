@@ -56,14 +56,30 @@ router.post('/staff', authenticateToken, authorizeRoles('admin'), async (req, re
   try {
     const {
       username, email, password, role, first_name, last_name, phone,
-      gender, date_of_birth, dept_id, qualification, specialization, joining_date, salary
+      gender, date_of_birth, dept_id, qualification, specialization,
+      experience_years, joining_date, salary
     } = req.body;
 
     const hash = await bcrypt.hash(password || 'Admin@123', 10);
     const [result] = await pool.query(
-      'CALL sp_register_staff(?,?,?,?,?,?,?,?,?,?,?,?,?,?,@uid,@sid)',
-      [username, email, hash, role, first_name, last_name, phone,
-       gender, date_of_birth, dept_id, qualification, specialization, joining_date, salary]
+      'CALL sp_register_staff(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,@uid,@sid)',
+      [
+        username,
+        email,
+        hash,
+        role,
+        first_name,
+        last_name,
+        phone || null,
+        gender || 'Male',
+        date_of_birth || null,
+        dept_id || null,
+        qualification || null,
+        specialization || null,
+        parseInt(experience_years, 10) || 0,
+        joining_date || new Date().toISOString().split('T')[0],
+        salary || 0.00
+      ]
     );
     const [[ids]] = await pool.query('SELECT @uid AS user_id, @sid AS staff_id');
     res.status(201).json({ success: true, message: 'Staff registered successfully', data: ids });
@@ -77,10 +93,10 @@ router.post('/staff', authenticateToken, authorizeRoles('admin'), async (req, re
 // PUT /api/admin/staff/:id
 router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const { dept_id, qualification, specialization, salary, shift, status } = req.body;
+    const { dept_id, qualification, specialization, experience_years, salary, shift, status } = req.body;
     await pool.query(
-      'UPDATE staff SET dept_id=?, qualification=?, specialization=?, salary=?, shift=?, status=? WHERE staff_id=?',
-      [dept_id, qualification, specialization, salary, shift, status, req.params.id]
+      'UPDATE staff SET dept_id=?, qualification=?, specialization=?, experience_years=?, salary=?, shift=?, status=? WHERE staff_id=?',
+      [dept_id, qualification, specialization, parseInt(experience_years, 10) || 0, salary, shift, status, req.params.id]
     );
     res.json({ success: true, message: 'Staff updated successfully' });
   } catch (err) {
@@ -146,6 +162,62 @@ router.get('/schedules', authenticateToken, authorizeRoles('admin'), async (req,
     const [rows] = await pool.query('CALL sp_get_doctor_schedules(?)', [dept_id || 0]);
     res.json({ success: true, data: rows[0] });
   } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// POST /api/admin/schedules (Add schedule for a doctor)
+router.post('/schedules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const { doctor_id, day_of_week, start_time, end_time, max_appointments, is_available } = req.body;
+
+    if (!doctor_id || !day_of_week || !start_time || !end_time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Doctor, day of week, start time, and end time are required'
+      });
+    }
+
+    if (start_time >= end_time) {
+      return res.status(400).json({
+        success: false,
+        message: 'End time must be after start time'
+      });
+    }
+
+    // Check if schedule already exists for this doctor on this day
+    const [existing] = await pool.query(
+      'SELECT schedule_id FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?',
+      [doctor_id, day_of_week]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `A schedule already exists for this doctor on ${day_of_week}`
+      });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time, max_appointments, is_available)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        doctor_id,
+        day_of_week,
+        start_time,
+        end_time,
+        parseInt(max_appointments, 10) || 20,
+        is_available === undefined || is_available === true || is_available === 'true' || is_available === 1 ? 1 : 0
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Doctor schedule added successfully',
+      data: { schedule_id: result.insertId }
+    });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
