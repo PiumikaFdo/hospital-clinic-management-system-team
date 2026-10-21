@@ -56,7 +56,21 @@ router.get('/prescriptions', authenticateToken, authorizeRoles('pharmacist'), as
 // GET /api/pharmacy/prescriptions/:id
 router.get('/prescriptions/:id', authenticateToken, authorizeRoles('pharmacist'), async (req, res) => {
   try {
-    const [items] = await pool.query('SELECT * FROM vw_prescription_details WHERE prescription_id=?', [req.params.id]);
+    const [items] = await pool.query(
+      `SELECT vd.*, 
+              m.medicine_id,
+              m.stock_quantity,
+              fn_is_medicine_in_stock(m.medicine_id, vd.quantity) AS in_stock,
+              pat.patient_code,
+              pat.blood_group,
+              pat.allergies
+       FROM vw_prescription_details vd
+       JOIN prescription_items pi ON vd.item_id = pi.item_id
+       JOIN medicines m ON pi.medicine_id = m.medicine_id
+       JOIN patients pat ON vd.patient_id = pat.patient_id
+       WHERE vd.prescription_id = ?`,
+      [req.params.id]
+    );
     res.json({ success: true, data: items });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -66,15 +80,71 @@ router.get('/prescriptions/:id', authenticateToken, authorizeRoles('pharmacist')
 // POST /api/pharmacy/prescriptions/:id/dispense
 router.post('/prescriptions/:id/dispense', authenticateToken, authorizeRoles('pharmacist'), async (req, res) => {
   try {
-    await pool.query('CALL sp_dispense_prescription(?,?)', [req.params.id, req.user.user_id]);
+    const prescriptionId = req.params.id;
+    const { notes } = req.body;
+
+    // 1. Double-dispense check & existence check
+    const [prescriptions] = await pool.query(
+      'SELECT prescription_id, status FROM prescriptions WHERE prescription_id = ?',
+      [prescriptionId]
+    );
+
+    if (prescriptions.length === 0) {
+      return res.status(404).json({ success: false, message: 'Prescription not found' });
+    }
+
+    const prescription = prescriptions[0];
+    if (prescription.status === 'Dispensed') {
+      return res.status(400).json({ success: false, message: 'Prescription is already dispensed' });
+    }
+    if (prescription.status === 'Cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot dispense a cancelled prescription' });
+    }
+
+    // 2. Validate inventory using Member 3 stored function fn_is_medicine_in_stock
+    const [items] = await pool.query(
+      `SELECT pi.medicine_id, pi.quantity, m.medicine_name, m.stock_quantity,
+              fn_is_medicine_in_stock(pi.medicine_id, pi.quantity) AS in_stock
+       FROM prescription_items pi
+       JOIN medicines m ON pi.medicine_id = m.medicine_id
+       WHERE pi.prescription_id = ?`,
+      [prescriptionId]
+    );
+
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Prescription has no items to dispense' });
+    }
+
+    const outOfStock = items.filter(item => !item.in_stock);
+    if (outOfStock.length > 0) {
+      const details = outOfStock
+        .map(i => `${i.medicine_name} (Requested: ${i.quantity}, In Stock: ${i.stock_quantity})`)
+        .join(', ');
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient stock for: ${details}`
+      });
+    }
+
+    // 3. Execute atomic stored procedure to deduct stock and update status
+    await pool.query('CALL sp_dispense_prescription(?,?)', [prescriptionId, req.user.user_id]);
+
+    // 4. Optionally record pharmacist dispensing notes
+    if (notes && notes.trim()) {
+      await pool.query(
+        "UPDATE medicine_stock_log SET notes = ? WHERE reference_type = 'PRESCRIPTION' AND reference_id = ?",
+        [notes.trim(), prescriptionId]
+      );
+    }
+
     res.json({ success: true, message: 'Prescription dispensed successfully' });
   } catch (err) {
     res.status(400).json({ success: false, message: err.sqlMessage || 'Failed to dispense' });
   }
 });
 
-// GET /api/pharmacy/medicines (utilizes idx_pharmacy_medicines_stock_reorder)
-router.get('/medicines', authenticateToken, authorizeRoles('pharmacist','admin'), async (req, res) => {
+// GET /api/pharmacy/medicines (utilizes idx_pharmacy_medicines_stock_reorder; authorized for pharmacist, admin, and doctor)
+router.get('/medicines', authenticateToken, authorizeRoles('pharmacist', 'admin', 'doctor'), async (req, res) => {
   try {
     const { stock_status, category, search } = req.query;
     let query = 'SELECT * FROM vw_medicine_inventory WHERE 1=1';
@@ -101,7 +171,7 @@ router.get('/medicines', authenticateToken, authorizeRoles('pharmacist','admin')
 });
 
 // POST /api/pharmacy/medicines  (add new medicine)
-router.post('/medicines', authenticateToken, authorizeRoles('pharmacist','admin'), async (req, res) => {
+router.post('/medicines', authenticateToken, authorizeRoles('pharmacist', 'admin'), async (req, res) => {
   try {
     const { medicine_name, generic_name, brand, category, dosage_form, strength, unit_price, stock_quantity, reorder_level, expiry_date, manufacturer } = req.body;
     const [result] = await pool.query(
@@ -115,7 +185,7 @@ router.post('/medicines', authenticateToken, authorizeRoles('pharmacist','admin'
 });
 
 // PUT /api/pharmacy/medicines/:id  (update medicine)
-router.put('/medicines/:id', authenticateToken, authorizeRoles('pharmacist','admin'), async (req, res) => {
+router.put('/medicines/:id', authenticateToken, authorizeRoles('pharmacist', 'admin'), async (req, res) => {
   try {
     const { medicine_name, generic_name, brand, category, unit_price, reorder_level, expiry_date } = req.body;
     await pool.query(
@@ -140,24 +210,17 @@ router.post('/medicines/:id/stock', authenticateToken, authorizeRoles('pharmacis
   }
 });
 
-// GET /api/pharmacy/stock-history (utilizes idx_pharmacy_stock_log_med_date)
-router.get('/stock-history', authenticateToken, authorizeRoles('pharmacist','admin'), async (req, res) => {
+// GET /api/pharmacy/stock-history (utilizes vw_medicine_stock_history and idx_pharmacy_stock_log_med_date)
+router.get('/stock-history', authenticateToken, authorizeRoles('pharmacist', 'admin'), async (req, res) => {
   try {
     const { medicine_id, change_type, start_date, end_date, limit } = req.query;
-    let query = `
-      SELECT msl.*, m.medicine_name, m.dosage_form,
-             CONCAT(u.first_name,' ',u.last_name) AS logged_by_name
-      FROM medicine_stock_log msl
-      JOIN medicines m ON msl.medicine_id = m.medicine_id
-      LEFT JOIN users u ON msl.logged_by = u.user_id
-      WHERE 1=1
-    `;
+    let query = 'SELECT * FROM vw_medicine_stock_history WHERE 1=1';
     const params = [];
-    if (medicine_id) { query += ' AND msl.medicine_id = ?'; params.push(medicine_id); }
-    if (change_type && change_type !== 'ALL') { query += ' AND msl.change_type = ?'; params.push(change_type); }
-    if (start_date) { query += ' AND DATE(msl.logged_at) >= ?'; params.push(start_date); }
-    if (end_date) { query += ' AND DATE(msl.logged_at) <= ?'; params.push(end_date); }
-    query += ' ORDER BY msl.logged_at DESC LIMIT ?';
+    if (medicine_id) { query += ' AND medicine_id = ?'; params.push(medicine_id); }
+    if (change_type && change_type !== 'ALL') { query += ' AND change_type = ?'; params.push(change_type); }
+    if (start_date) { query += ' AND DATE(logged_at) >= ?'; params.push(start_date); }
+    if (end_date) { query += ' AND DATE(logged_at) <= ?'; params.push(end_date); }
+    query += ' ORDER BY logged_at DESC LIMIT ?';
     params.push(parseInt(limit) || 100);
 
     const [rows] = await pool.query(query, params);
