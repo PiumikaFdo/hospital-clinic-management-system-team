@@ -5,7 +5,7 @@
 --  Default Password for all seeded accounts: Admin@123
 --  Features: 23 Role-Based Indexes (Minimum 3-4 per role),
 --             15 Views, 15 Stored Procedures, 15 Functions,
---             8 Triggers, Full Transactions, Seed Data
+--             9 Triggers, Full Transactions, Seed Data
 -- ============================================================
 
 DROP DATABASE IF EXISTS hospital_db;
@@ -90,7 +90,7 @@ CREATE TABLE appointments (
     appointment_date DATE NOT NULL,
     appointment_time TIME NOT NULL,
     reason TEXT,
-    status ENUM('Pending','Confirmed','Completed','Cancelled','No_Show') DEFAULT 'Pending',
+    status ENUM('Pending','Confirmed','Completed','Cancelled','No_Show') DEFAULT 'Confirmed',
     appointment_type ENUM('Online','Walk-in','Emergency') DEFAULT 'Online',
     guest_name VARCHAR(100),
     guest_phone VARCHAR(20),
@@ -977,8 +977,8 @@ BEGIN
     VALUES(v_user_id, v_patient_code, p_blood_group);
     SET p_patient_id = LAST_INSERT_ID();
 
-    INSERT INTO appointments(patient_id, doctor_id, appointment_date, appointment_time, reason, appointment_type)
-    VALUES(p_patient_id, p_doctor_id, p_appt_date, p_appt_time, p_reason, 'Walk-in');
+    INSERT INTO appointments(patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type)
+    VALUES(p_patient_id, p_doctor_id, p_appt_date, p_appt_time, p_reason, 'Confirmed', 'Walk-in');
     SET p_appointment_id = LAST_INSERT_ID();
     COMMIT;
 END$$
@@ -1154,6 +1154,88 @@ BEGIN
     UPDATE lab_requests SET status = 'Completed', completed_at = NOW()
     WHERE lab_request_id = p_lab_request_id;
     COMMIT;
+END$$
+
+-- PROCEDURE 16: Appointment analytics grouped by weekdays (Monday to Sunday)
+CREATE PROCEDURE sp_appointments_by_weekday()
+BEGIN
+    SELECT 
+        d.day_index,
+        d.day_name,
+        d.short_name,
+        COUNT(a.appointment_id) AS total_appointments,
+        SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed,
+        SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN a.status = 'Pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN a.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+        SUM(CASE WHEN a.appointment_type = 'Online' THEN 1 ELSE 0 END) AS online_count,
+        SUM(CASE WHEN a.appointment_type = 'Walk-in' THEN 1 ELSE 0 END) AS walkin_count,
+        SUM(CASE WHEN a.appointment_type = 'Emergency' THEN 1 ELSE 0 END) AS emergency_count
+    FROM (
+        SELECT 1 AS day_index, 'Monday' AS day_name, 'Mon' AS short_name UNION ALL
+        SELECT 2, 'Tuesday', 'Tue' UNION ALL
+        SELECT 3, 'Wednesday', 'Wed' UNION ALL
+        SELECT 4, 'Thursday', 'Thu' UNION ALL
+        SELECT 5, 'Friday', 'Fri' UNION ALL
+        SELECT 6, 'Saturday', 'Sat' UNION ALL
+        SELECT 7, 'Sunday', 'Sun'
+    ) d
+    LEFT JOIN appointments a ON DAYNAME(a.appointment_date) = d.day_name
+    GROUP BY d.day_index, d.day_name, d.short_name
+    ORDER BY d.day_index;
+END$$
+
+-- PROCEDURE 17: Summary of appointments for each doctor separately
+CREATE PROCEDURE sp_appointment_summary_by_doctor()
+BEGIN
+    SELECT 
+        s.staff_id AS doctor_id,
+        CONCAT(u.first_name, ' ', u.last_name) AS doctor_name,
+        u.email AS doctor_email,
+        u.phone AS doctor_phone,
+        d.dept_name,
+        s.specialization,
+        COUNT(a.appointment_id) AS total_appointments,
+        SUM(CASE WHEN a.appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_appointments,
+        SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
+        SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
+        SUM(CASE WHEN a.status = 'Pending' THEN 1 ELSE 0 END) AS pending_appointments,
+        SUM(CASE WHEN a.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_appointments,
+        ROUND(
+            COALESCE(
+                SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(a.appointment_id), 0),
+                0
+            ), 1
+        ) AS completion_rate
+    FROM staff s
+    JOIN users u ON s.user_id = u.user_id
+    LEFT JOIN departments d ON s.dept_id = d.dept_id
+    LEFT JOIN appointments a ON s.staff_id = a.doctor_id
+    WHERE u.role = 'Doctor'
+    GROUP BY s.staff_id, u.first_name, u.last_name, u.email, u.phone, d.dept_name, s.specialization
+    ORDER BY total_appointments DESC, doctor_name ASC;
+END$$
+
+-- PROCEDURE 18: Overall summary of appointments across all doctors
+CREATE PROCEDURE sp_appointment_summary_overall()
+BEGIN
+    SELECT 
+        COUNT(*) AS total_appointments,
+        SUM(CASE WHEN appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_appointments,
+        SUM(CASE WHEN appointment_date > CURDATE() THEN 1 ELSE 0 END) AS future_appointments,
+        SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
+        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending_appointments,
+        SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_appointments,
+        COUNT(DISTINCT doctor_id) AS total_doctors_scheduled,
+        COUNT(DISTINCT patient_id) AS total_patients_scheduled,
+        ROUND(
+            COALESCE(
+                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+                0
+            ), 1
+        ) AS overall_completion_rate
+    FROM appointments;
 END$$
 
 -- ============================================================
@@ -1375,7 +1457,7 @@ LEFT JOIN staff ns ON w.nurse_in_charge = ns.staff_id
 LEFT JOIN users nu ON ns.user_id = nu.user_id$$
 
 -- ============================================================
--- 6. TRIGGERS (8 total)
+-- 6. TRIGGERS (9 total)
 -- ============================================================
 
 -- TRIGGER 1: Prevent double-booking (BEFORE INSERT on appointments)
@@ -1477,6 +1559,22 @@ BEGIN
                JSON_OBJECT('stock', OLD.stock_quantity),
                JSON_OBJECT('stock', NEW.stock_quantity, 'reorder_level', NEW.reorder_level));
     END IF;
+END$$
+
+-- TRIGGER 9: Set staff salary based on role (BEFORE INSERT on staff)
+CREATE TRIGGER trg_before_staff_insert
+BEFORE INSERT ON staff
+FOR EACH ROW
+BEGIN
+    DECLARE v_role VARCHAR(20);
+    SELECT role INTO v_role FROM users WHERE user_id = NEW.user_id;
+    SET NEW.salary = CASE v_role
+        WHEN 'doctor' THEN 150000
+        WHEN 'nurse' THEN 75000
+        WHEN 'receptionist' THEN 65000
+        WHEN 'pharmacist' THEN 100000
+        ELSE NEW.salary
+    END;
 END$$
 
 DELIMITER ;

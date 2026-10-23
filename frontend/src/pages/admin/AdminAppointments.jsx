@@ -53,7 +53,7 @@ const AdminAppointments = () => {
           </div>
           <div><label className="form-label">Status</label>
             <select className="form-control" value={filter.status} onChange={e=>f('status',e.target.value)}>
-              {['ALL','Pending','Confirmed','Completed','Cancelled','No_Show'].map(s=><option key={s}>{s}</option>)}
+              {['ALL','Confirmed','Completed','Cancelled','No_Show'].map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
         </div>

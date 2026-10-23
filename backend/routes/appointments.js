@@ -86,9 +86,9 @@ router.post('/public/book', async (req, res) => {
   try {
     const { guest_name, guest_phone, guest_email, doctor_id, appointment_date, appointment_time, reason } = req.body;
     const [result] = await pool.query(
-      `INSERT INTO appointments (doctor_id, appointment_date, appointment_time, reason, appointment_type, guest_name, guest_phone, guest_email)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [doctor_id, appointment_date, appointment_time, reason, 'Online', guest_name, guest_phone, guest_email]
+      `INSERT INTO appointments (doctor_id, appointment_date, appointment_time, reason, status, appointment_type, guest_name, guest_phone, guest_email)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [doctor_id, appointment_date, appointment_time, reason, 'Confirmed', 'Online', guest_name, guest_phone, guest_email]
     );
     res.status(201).json({ success: true, message: 'Appointment booked successfully!', appointment_id: result.insertId });
   } catch (err) {
