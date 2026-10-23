@@ -28,6 +28,27 @@ router.get('/dashboard', authenticateToken, authorizeRoles('admin'), async (req,
   }
 });
 
+// GET /api/admin/appointment-analytics (Calls the 3 stored procedures)
+router.get('/appointment-analytics', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const [weekdayRows] = await pool.query('CALL sp_appointments_by_weekday()');
+    const [doctorRows] = await pool.query('CALL sp_appointment_summary_by_doctor()');
+    const [overallRows] = await pool.query('CALL sp_appointment_summary_overall()');
+
+    res.json({
+      success: true,
+      data: {
+        weekdayStats: weekdayRows[0] || [],
+        doctorSummary: doctorRows[0] || [],
+        overallSummary: overallRows[0]?.[0] || {}
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching appointment analytics:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // GET /api/admin/dashboard/details (Fetch details for clicked dashboard stat card)
 router.get('/dashboard/details', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {

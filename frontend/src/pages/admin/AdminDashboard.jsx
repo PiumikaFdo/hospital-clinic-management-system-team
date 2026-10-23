@@ -1,27 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import {
   Users,
   UserCheck,
   CalendarCheck,
-  Clock,
   Building2,
-  DollarSign,
-  Pill,
-  FileWarning,
   TrendingUp,
   BarChart2,
   Calendar,
   Activity,
   ChevronRight,
   Search,
-  X
+  X,
+  CheckCircle2,
+  AlertCircle,
+  XCircle,
+  Stethoscope,
+  Layers,
+  CalendarDays,
+  Pill,
+  Clock,
+  FileWarning
 } from 'lucide-react';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 
-const StatCard = ({ icon: Icon, label, value, color = 'blue', onClick, badgeText = 'View' }) => (
+const StatCard = ({ icon: Icon, label, value, color = 'blue', onClick, badgeText = 'View', subtitle }) => (
   <div
     className="stat-card clickable"
     onClick={onClick}
@@ -41,6 +46,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'blue', onClick, badgeText
     <div className="stat-content">
       <div className="stat-value">{value ?? '—'}</div>
       <div className="stat-label">{label}</div>
+      {subtitle && <div style={{ fontSize: 11, color: 'var(--slate-400)', marginTop: 2 }}>{subtitle}</div>}
     </div>
     <div className="stat-card-badge">
       <span>{badgeText}</span>
@@ -90,7 +96,16 @@ const AdminDashboard = () => {
   const [revenue, setRevenue]   = useState([]);
   const [loading, setLoading]   = useState(true);
 
-  // Modal State for stat card drill-down
+  // Appointment analytics state
+  const [appointmentAnalytics, setAppointmentAnalytics] = useState({
+    weekdayStats: [],
+    doctorSummary: [],
+    overallSummary: {}
+  });
+  const [dashboardApptTab, setDashboardApptTab] = useState('weekdays'); // inline dashboard card tab
+  const [dashDoctorSearch, setDashDoctorSearch] = useState('');
+
+  // Modal State for other stat card drill-down (Patients, Staff, Admissions, Revenue, Low Stock)
   const [activeModal, setActiveModal]   = useState(null); // { type, title, color, icon }
   const [modalDetails, setModalDetails] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
@@ -115,19 +130,22 @@ const AdminDashboard = () => {
     Promise.all([
       API.get('/admin/dashboard'),
       API.get('/admin/revenue'),
-    ]).then(([d, r]) => {
+      API.get('/admin/appointment-analytics')
+    ]).then(([d, r, an]) => {
       setStats(d.data.data?.stats || {});
       setDept(d.data.data?.deptStats || []);
       setAppts(d.data.data?.recentAppointments || []);
       setRevenue(r.data.data?.monthlyBreakdown || []);
+      setAppointmentAnalytics(an.data?.data || { weekdayStats: [], doctorSummary: [], overallSummary: {} });
     }).catch(err => {
       console.error('Failed to load admin stats:', err);
     }).finally(() => setLoading(false));
   }, []);
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const currentDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
-  // Filter records in modal based on search term
+  // Filter records in generic modal based on search term
   const filteredDetails = modalDetails.filter((item) => {
     if (!modalSearch.trim()) return true;
     const term = modalSearch.toLowerCase();
@@ -135,6 +153,32 @@ const AdminDashboard = () => {
       val !== null && val !== undefined && String(val).toLowerCase().includes(term)
     );
   });
+
+  // Doctor list filtering in dashboard card
+  const filteredDashDoctors = (appointmentAnalytics.doctorSummary || []).filter(doc => {
+    if (!dashDoctorSearch.trim()) return true;
+    const term = dashDoctorSearch.toLowerCase();
+    return (
+      (doc.doctor_name && doc.doctor_name.toLowerCase().includes(term)) ||
+      (doc.dept_name && doc.dept_name.toLowerCase().includes(term)) ||
+      (doc.specialization && doc.specialization.toLowerCase().includes(term))
+    );
+  });
+
+  // Chart data for weekdays
+  const weekdayChartData = (appointmentAnalytics.weekdayStats || []).map(day => ({
+    name: day.short_name,
+    fullName: day.day_name,
+    total: Number(day.total_appointments || 0),
+    confirmed: Number(day.confirmed || 0),
+    completed: Number(day.completed || 0),
+    pending: Number(day.pending || 0),
+    cancelled: Number(day.cancelled || 0),
+    online: Number(day.online_count || 0),
+    walkin: Number(day.walkin_count || 0),
+  }));
+
+  const overall = appointmentAnalytics.overallSummary || {};
 
   return (
     <DashboardLayout title="Hospital Administration Dashboard" subtitle="Executive oversight of patient flow, medical staff, and hospital clinical revenues">
@@ -144,6 +188,7 @@ const AdminDashboard = () => {
         </div>
       ) : (
         <>
+          {/* STAT GRID: Pending Review & Outstanding Invoices removed */}
           <div className="stat-grid">
             <StatCard 
               icon={Users} 
@@ -165,15 +210,6 @@ const AdminDashboard = () => {
               label="Today's Appointments" 
               value={stats.today_appointments} 
               color="teal" 
-              badgeText="Appointments"
-              onClick={() => navigate('/admin/appointments')}
-            />
-            <StatCard 
-              icon={Clock} 
-              label="Pending Review" 
-              value={stats.pending_appointments} 
-              color="amber" 
-              onClick={() => handleOpenStatDetails('pending_appointments', 'Pending Review Appointments', 'amber', Clock)}
             />
             <StatCard 
               icon={Building2} 
@@ -196,13 +232,315 @@ const AdminDashboard = () => {
               color="red" 
               onClick={() => handleOpenStatDetails('low_stock', 'Low Stock Inventory Alert', 'red', Pill)}
             />
-            <StatCard 
-              icon={FileWarning} 
-              label="Outstanding Invoices" 
-              value={stats.unpaid_bills} 
-              color="amber" 
-              onClick={() => handleOpenStatDetails('unpaid_bills', 'Outstanding Unpaid Invoices', 'amber', FileWarning)}
-            />
+          </div>
+
+          {/* DEDICATED APPOINTMENT PERFORMANCE & WEEKDAYS FLOW CARD */}
+          <div className="card" style={{ marginBottom: 24, border: '1px solid #ccfbf1', boxShadow: '0 4px 18px rgba(13, 148, 136, 0.06)' }}>
+            <div className="card-header" style={{ flexWrap: 'wrap', gap: 12, borderBottom: '1px solid #e6fffa' }}>
+              <div className="card-header-left">
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f0fdfa', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0d9488' }}>
+                  <CalendarCheck size={19} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Today's Appointments & Clinical Workload Flow
+                  </h3>
+                  <span style={{ fontSize: 12, color: 'var(--slate-500)' }}>
+                    Detailed weekday distribution, individual doctor workload summaries, and institutional totals
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Switcher Tabs */}
+                <div style={{ display: 'flex', background: 'var(--slate-100)', padding: 3, borderRadius: 8, gap: 2 }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${dashboardApptTab === 'weekdays' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: 12, padding: '5px 12px', height: 'auto', border: 'none' }}
+                    onClick={() => setDashboardApptTab('weekdays')}
+                  >
+                    🗓️ Weekdays Flow
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${dashboardApptTab === 'doctors' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: 12, padding: '5px 12px', height: 'auto', border: 'none' }}
+                    onClick={() => setDashboardApptTab('doctors')}
+                  >
+                    👨‍⚕️ By Doctor Separately
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${dashboardApptTab === 'overall' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: 12, padding: '5px 12px', height: 'auto', border: 'none' }}
+                    onClick={() => setDashboardApptTab('overall')}
+                  >
+                    📊 All In Together
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+            <div className="card-body">
+              {/* TAB 1: WEEKDAY FLOW */}
+              {dashboardApptTab === 'weekdays' && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 18 }}>
+                    {(appointmentAnalytics.weekdayStats || []).map((day) => {
+                      const isToday = day.day_name === currentDayName;
+                      const totalCount = Number(day.total_appointments || 0);
+                      return (
+                        <div
+                          key={day.day_index}
+                          style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: isToday ? '#f0fdfa' : '#f8fafc',
+                            border: isToday ? '2px solid #0d9488' : '1px solid #e2e8f0',
+                            textAlign: 'center',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: isToday ? '#0d9488' : 'var(--slate-700)' }}>
+                              {day.short_name}
+                            </span>
+                            {isToday && (
+                              <span style={{ fontSize: 9.5, fontWeight: 700, background: '#0d9488', color: '#fff', padding: '1px 5px', borderRadius: 4 }}>
+                                Today
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: totalCount > 0 ? 'var(--slate-800)' : 'var(--slate-400)' }}>
+                            {totalCount}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--slate-500)', marginTop: 4 }}>
+                            <span style={{ color: '#16a34a' }}>{day.confirmed || 0} conf</span> · <span style={{ color: '#f59e0b' }}>{day.pending || 0} pend</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ height: 220 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={weekdayChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} stroke="#cbd5e1" />
+                        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} stroke="#cbd5e1" allowDecimals={false} />
+                        <Tooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0].payload;
+                              return (
+                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}>
+                                  <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>
+                                    {d.fullName}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: '#334155' }}>
+                                    Total Bookings: <strong>{d.total}</strong>
+                                  </div>
+                                  <div style={{ fontSize: 11.5, color: '#16a34a', marginTop: 3 }}>✓ Confirmed: {d.confirmed}</div>
+                                  <div style={{ fontSize: 11.5, color: '#2563eb' }}>✓ Completed: {d.completed}</div>
+                                  <div style={{ fontSize: 11.5, color: '#d97706' }}>⌛ Pending: {d.pending}</div>
+                                  <div style={{ fontSize: 11.5, color: '#dc2626' }}>✕ Cancelled: {d.cancelled}</div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar dataKey="confirmed" name="Confirmed" fill="#10b981" stackId="a" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="completed" name="Completed" fill="#3b82f6" stackId="a" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="pending" name="Pending" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="cancelled" name="Cancelled" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: DOCTOR SUMMARY */}
+              {dashboardApptTab === 'doctors' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ position: 'relative', width: 260 }}>
+                      <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--slate-400)' }} />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Search doctor or department..."
+                        value={dashDoctorSearch}
+                        onChange={(e) => setDashDoctorSearch(e.target.value)}
+                        style={{ paddingLeft: 30, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--slate-500)' }}>
+                      {filteredDashDoctors.length} Doctors Registered
+                    </span>
+                  </div>
+
+                  <div className="table-container" style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Doctor</th>
+                          <th>Department / Specialization</th>
+                          <th style={{ textAlign: 'center' }}>Today</th>
+                          <th style={{ textAlign: 'center' }}>Total</th>
+                          <th style={{ textAlign: 'center' }}>Confirmed</th>
+                          <th style={{ textAlign: 'center' }}>Completed</th>
+                          <th style={{ textAlign: 'center' }}>Pending</th>
+                          <th>Completion Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDashDoctors.map((doc) => (
+                          <tr key={doc.doctor_id}>
+                            <td>
+                              <strong>Dr. {doc.doctor_name}</strong>
+                              <div className="cell-sub">{doc.doctor_email}</div>
+                            </td>
+                            <td>
+                              <div><strong>{doc.dept_name || 'General'}</strong></div>
+                              <div className="cell-sub">{doc.specialization || 'Consultant'}</div>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              {Number(doc.today_appointments || 0) > 0 ? (
+                                <span className="badge badge-primary" style={{ fontWeight: 700 }}>
+                                  {doc.today_appointments}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--slate-400)' }}>0</span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <strong>{doc.total_appointments || 0}</strong>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ color: '#16a34a', fontWeight: 600 }}>{doc.confirmed_appointments || 0}</span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ color: '#2563eb', fontWeight: 600 }}>{doc.completed_appointments || 0}</span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ color: '#d97706', fontWeight: 600 }}>{doc.pending_appointments || 0}</span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                                  <div
+                                    style={{
+                                      width: `${Math.min(100, Number(doc.completion_rate || 0))}%`,
+                                      height: '100%',
+                                      background: '#0d9488',
+                                      borderRadius: 3
+                                    }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: 11.5, fontWeight: 600, color: '#0d9488', minWidth: 36 }}>
+                                  {doc.completion_rate || '0.0'}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: OVERALL SUMMARY */}
+              {dashboardApptTab === 'overall' && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
+                    <div style={{ padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: 12, color: 'var(--slate-500)', marginBottom: 4 }}>Total Appointments (All-Time)</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--slate-800)' }}>
+                        {overall.total_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--slate-400)', marginTop: 4 }}>
+                        Across all hospital departments
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#f0fdfa', borderRadius: 10, border: '1px solid #ccfbf1' }}>
+                      <div style={{ fontSize: 12, color: '#0d9488', marginBottom: 4 }}>Scheduled Today</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#0f766e' }}>
+                        {overall.today_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#14b8a6', marginTop: 4 }}>
+                        Active outpatient flow today
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#ecfdf5', borderRadius: 10, border: '1px solid #d1fae5' }}>
+                      <div style={{ fontSize: 12, color: '#059669', marginBottom: 4 }}>Confirmed Appointments</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#047857' }}>
+                        {overall.confirmed_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#10b981', marginTop: 4 }}>
+                        Verified by clinic front desk
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#eff6ff', borderRadius: 10, border: '1px solid #dbeafe' }}>
+                      <div style={{ fontSize: 12, color: '#2563eb', marginBottom: 4 }}>Completed Appointments</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#1d4ed8' }}>
+                        {overall.completed_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>
+                        Prescriptions & records saved
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#fffbeb', borderRadius: 10, border: '1px solid #fef3c7' }}>
+                      <div style={{ fontSize: 12, color: '#d97706', marginBottom: 4 }}>Pending Review</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#b45309' }}>
+                        {overall.pending_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>
+                        Awaiting clinic confirmation
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#fef2f2', borderRadius: 10, border: '1px solid #fee2e2' }}>
+                      <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 4 }}>Cancelled / No Show</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#b91c1c' }}>
+                        {overall.cancelled_appointments || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
+                        Discontinued or missed
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#faf5ff', borderRadius: 10, border: '1px solid #f3e8ff' }}>
+                      <div style={{ fontSize: 12, color: '#7e22ce', marginBottom: 4 }}>Scheduled Doctors</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#6b21a8' }}>
+                        {overall.total_doctors_scheduled || 0}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#a855f7', marginTop: 4 }}>
+                        Active physicians with bookings
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #cbd5e1' }}>
+                      <div style={{ fontSize: 12, color: '#334155', marginBottom: 4 }}>Overall Completion Rate</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
+                        {overall.overall_completion_rate || '0.0'}%
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--slate-500)', marginTop: 4 }}>
+                        Institutional throughput ratio
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="dashboard-charts-grid">
@@ -297,8 +635,8 @@ const AdminDashboard = () => {
                         <td><strong>{a.patient_name}</strong></td>
                         <td>Dr. {a.doctor_name}</td>
                         <td>{a.dept_name}</td>
-                        <td>{a.appointment_date}</td>
-                        <td>{String(a.appointment_time).slice(0, 5)}</td>
+                        <td>{a.appointment_date ? String(a.appointment_date).slice(0, 10) : '—'}</td>
+                        <td>{a.appointment_time ? String(a.appointment_time).slice(0, 5) : '—'}</td>
                         <td><StatusBadge status={a.status} /></td>
                       </tr>
                     ))}
@@ -315,7 +653,9 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-          {/* Stat Card Details Popup Modal */}
+          {/* ============================================================
+              OTHER STAT CARD DRILL-DOWN MODAL (Patients, Staff, Admissions, etc.)
+             ============================================================ */}
           {activeModal && (
             <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setActiveModal(null)}>
               <div className="modal" style={{ maxWidth: 960, width: '95%', maxHeight: '88vh' }}>
@@ -386,17 +726,6 @@ const AdminDashboard = () => {
                               <th>Status</th>
                             </tr>
                           )}
-                          {(activeModal.type === 'today_appointments' || activeModal.type === 'pending_appointments') && (
-                            <tr>
-                              <th>Ref #</th>
-                              <th>Patient</th>
-                              <th>Consultant</th>
-                              <th>Department</th>
-                              <th>Date & Time</th>
-                              <th>Type / Reason</th>
-                              <th>Status</th>
-                            </tr>
-                          )}
                           {activeModal.type === 'admissions' && (
                             <tr>
                               <th>Admission ID</th>
@@ -431,19 +760,6 @@ const AdminDashboard = () => {
                               <th>Expiry Date</th>
                             </tr>
                           )}
-                          {activeModal.type === 'unpaid_bills' && (
-                            <tr>
-                              <th>Bill #</th>
-                              <th>Patient</th>
-                              <th>Phone</th>
-                              <th>Bill Date</th>
-                              <th>Due Date</th>
-                              <th>Total</th>
-                              <th>Paid</th>
-                              <th>Balance Due</th>
-                              <th>Status</th>
-                            </tr>
-                          )}
                         </thead>
                         <tbody>
                           {activeModal.type === 'patients' && filteredDetails.map(p => (
@@ -471,27 +787,6 @@ const AdminDashboard = () => {
                                 <div className="cell-sub">{s.email}</div>
                               </td>
                               <td><span className="badge badge-success">{s.status}</span></td>
-                            </tr>
-                          ))}
-
-                          {(activeModal.type === 'today_appointments' || activeModal.type === 'pending_appointments') && filteredDetails.map(a => (
-                            <tr key={a.appointment_id}>
-                              <td><span className="code-tag">#{a.appointment_id}</span></td>
-                              <td>
-                                <strong>{a.patient_name}</strong>
-                                {a.patient_phone && <div className="cell-sub">{a.patient_phone}</div>}
-                              </td>
-                              <td>Dr. {a.doctor_name}</td>
-                              <td>{a.dept_name}</td>
-                              <td>
-                                <div>{a.appointment_date}</div>
-                                <div className="cell-sub">{a.appointment_time ? String(a.appointment_time).slice(0, 5) : '—'}</div>
-                              </td>
-                              <td>
-                                <div>{a.appointment_type || 'General'}</div>
-                                {a.reason && <div className="cell-sub">{a.reason}</div>}
-                              </td>
-                              <td><StatusBadge status={a.status} /></td>
                             </tr>
                           ))}
 
@@ -547,23 +842,6 @@ const AdminDashboard = () => {
                               <td>{m.reorder_level} units</td>
                               <td>Rs. {Number(m.unit_price || 0).toLocaleString()}</td>
                               <td>{m.expiry_date ? String(m.expiry_date).slice(0, 10) : '—'}</td>
-                            </tr>
-                          ))}
-
-                          {activeModal.type === 'unpaid_bills' && filteredDetails.map(b => (
-                            <tr key={b.bill_id}>
-                              <td><span className="code-tag">#{b.bill_id}</span></td>
-                              <td>
-                                <strong>{b.patient_name}</strong>
-                                <div className="cell-sub">{b.patient_code}</div>
-                              </td>
-                              <td>{b.phone || '—'}</td>
-                              <td>{b.bill_date ? String(b.bill_date).slice(0, 10) : '—'}</td>
-                              <td>{b.due_date ? String(b.due_date).slice(0, 10) : '—'}</td>
-                              <td>Rs. {Number(b.total_amount || 0).toLocaleString()}</td>
-                              <td>Rs. {Number(b.paid_amount || 0).toLocaleString()}</td>
-                              <td><strong style={{ color: '#dc2626' }}>Rs. {Number(b.balance_amount || 0).toLocaleString()}</strong></td>
-                              <td><span className="badge badge-warning">{b.payment_status}</span></td>
                             </tr>
                           ))}
                         </tbody>
