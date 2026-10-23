@@ -155,11 +155,6 @@ const Sidebar = () => {
         </div>
       </div>
 
-      <div className="sidebar-system-status">
-        <span className="status-indicator-dot" />
-        <span className="status-indicator-text">System Live • Encrypted</span>
-      </div>
-
       <nav className="sidebar-nav">
         {navItems.map((section) => (
           <div key={section.section} className="nav-section-wrapper">
