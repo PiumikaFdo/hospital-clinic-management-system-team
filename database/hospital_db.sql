@@ -641,6 +641,7 @@ CREATE PROCEDURE sp_register_staff(
     IN p_dept_id INT,
     IN p_qualification VARCHAR(200),
     IN p_specialization VARCHAR(100),
+    IN p_experience_years INT,
     IN p_joining_date DATE,
     IN p_salary DECIMAL(10,2),
     OUT p_new_user_id INT,
@@ -658,8 +659,8 @@ BEGIN
     VALUES(p_username,p_email,p_password_hash,p_role,p_first_name,p_last_name,p_phone,p_gender,p_dob);
     SET p_new_user_id = LAST_INSERT_ID();
     SET v_emp_id = CONCAT(UPPER(LEFT(p_role,3)), LPAD(p_new_user_id, 5, '0'));
-    INSERT INTO staff(user_id,dept_id,employee_id,qualification,specialization,joining_date,salary)
-    VALUES(p_new_user_id,p_dept_id,v_emp_id,p_qualification,p_specialization,p_joining_date,p_salary);
+    INSERT INTO staff(user_id,dept_id,employee_id,qualification,specialization,experience_years,joining_date,salary)
+    VALUES(p_new_user_id,p_dept_id,v_emp_id,p_qualification,p_specialization,COALESCE(p_experience_years, 0),p_joining_date,p_salary);
     SET p_new_staff_id = LAST_INSERT_ID();
     COMMIT;
 END$$

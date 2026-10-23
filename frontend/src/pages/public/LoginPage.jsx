@@ -94,8 +94,8 @@ const LoginPage = () => {
           </Link>
 
           <p className="login-left-desc">
-            Secure, audited healthcare information gateway. Access electronic health records,
-            inpatient management, diagnostic reports, and medical staff workflows with precision.
+            Your Health, Our Priority<br></br>
+            Every life matters. Every moment counts. Compassionate care and dedication come together to make a difference in every patient's journey
           </p>
 
           <div className="login-feature-list">
@@ -104,8 +104,8 @@ const LoginPage = () => {
                 <ShieldCheck size={16} />
               </div>
               <div className="feature-text">
-                <strong>Role-Based Access Control</strong>
-                <span>Granular authorization for physicians, nurses, and administrative staff</span>
+                <strong>Compassionate Patient Care</strong>
+                <span>Putting patients first with kindness, dignity, and understanding.</span>
               </div>
             </div>
 
@@ -114,8 +114,8 @@ const LoginPage = () => {
                 <FileCheck2 size={16} />
               </div>
               <div className="feature-text">
-                <strong>HIPAA & Clinical Audit Compliance</strong>
-                <span>Real-time transaction tracking and encrypted patient chart security</span>
+                <strong>Dedicated Medical Professionals</strong>
+                <span>Honoring the commitment of healthcare professionals who make a difference every day.</span>
               </div>
             </div>
 
@@ -124,15 +124,15 @@ const LoginPage = () => {
                 <Activity size={16} />
               </div>
               <div className="feature-text">
-                <strong>Direct OPD & Ward Synchronisation</strong>
-                <span>Real-time records synchronization across clinical departments</span>
+                <strong>A Healthier Tomorrow</strong>
+                <span>Working together toward better health, brighter lives, and stronger communities.</span>
               </div>
             </div>
           </div>
 
           <div className="login-left-status">
             <span className="live-dot" />
-            <span>Secure Enterprise Clinical Portal</span>
+            <span>Care with Compassion. Heal with Dedication</span>
           </div>
         </div>
       </div>
@@ -174,7 +174,6 @@ const LoginPage = () => {
             <div className="form-group">
               <div className="form-label-row">
                 <label className="form-label" htmlFor="password-input">Password</label>
-                <span className="form-hint">Default: password or Admin@123</span>
               </div>
               <div className="input-with-icon">
                 <KeyRound size={16} className="input-left-icon" />

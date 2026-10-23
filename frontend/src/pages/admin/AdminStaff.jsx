@@ -11,11 +11,13 @@ const AdminStaff = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [filter, setFilter]   = useState({ role: '', dept_id: '', status: '', search: '' });
-  const [form, setForm] = useState({
+  const defaultForm = {
     username:'', email:'', password:'Admin@123', role:'doctor', first_name:'', last_name:'',
     phone:'', gender:'Male', date_of_birth:'', dept_id:'', qualification:'', specialization:'',
-    joining_date: new Date().toISOString().split('T')[0], salary:''
-  });
+    experience_years: '', joining_date: new Date().toISOString().split('T')[0], salary:''
+  };
+
+  const [form, setForm] = useState(defaultForm);
 
   const load = () => {
     setLoading(true);
@@ -40,6 +42,7 @@ const AdminStaff = () => {
     try {
       await API.post('/admin/staff', form);
       toast.success('Staff member registered successfully!');
+      setForm(defaultForm);
       setShowModal(false);
       load();
     } catch (err) {
@@ -105,7 +108,12 @@ const AdminStaff = () => {
                     <td><strong>{s.first_name} {s.last_name}</strong><br/><span style={{ fontSize:11, color:'var(--gray-400)' }}>{s.email}</span></td>
                     <td><span className={`badge ${ROLE_BADGE[s.role]||'badge-gray'}`}>{s.role}</span></td>
                     <td>{s.dept_name || '—'}</td>
-                    <td>{s.specialization || '—'}</td>
+                    <td>
+                      {s.specialization || '—'}
+                      {s.experience_years > 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{s.experience_years} yrs exp</div>
+                      )}
+                    </td>
                     <td>{s.phone}</td>
                     <td>
                       <span className={`badge ${s.status==='Active'?'badge-success':s.status==='On_Leave'?'badge-warning':'badge-danger'}`}>
@@ -170,6 +178,17 @@ const AdminStaff = () => {
                   </div>
                   <div className="form-group"><label className="form-label">Qualification</label><input className="form-control" value={form.qualification} onChange={e=>set('qualification',e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">Specialization</label><input className="form-control" value={form.specialization} onChange={e=>set('specialization',e.target.value)} /></div>
+                  <div className="form-group">
+                    <label className="form-label">Years of Experience</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 5"
+                      value={form.experience_years}
+                      onChange={e=>set('experience_years',e.target.value)}
+                    />
+                  </div>
                   <div className="form-group"><label className="form-label">Joining Date</label><input className="form-control" type="date" value={form.joining_date} onChange={e=>set('joining_date',e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">Salary (Rs.)</label><input className="form-control" type="number" value={form.salary} onChange={e=>set('salary',e.target.value)} /></div>
                 </div>
