@@ -71,10 +71,7 @@ const StatusBadge = ({ status }) => {
 
   const map = { 
     Confirmed: 'badge-success', 
-    Pending: 'badge-warning', 
     Completed: 'badge-primary', 
-    Cancelled: 'badge-danger', 
-    No_Show: 'badge-gray',
     Discharged: 'badge-gray',
     Active: 'badge-success',
     Paid: 'badge-success',
@@ -172,8 +169,6 @@ const AdminDashboard = () => {
     total: Number(day.total_appointments || 0),
     confirmed: Number(day.confirmed || 0),
     completed: Number(day.completed || 0),
-    pending: Number(day.pending || 0),
-    cancelled: Number(day.cancelled || 0),
     online: Number(day.online_count || 0),
     walkin: Number(day.walkin_count || 0),
   }));
@@ -188,7 +183,7 @@ const AdminDashboard = () => {
         </div>
       ) : (
         <>
-          {/* STAT GRID: Pending Review & Outstanding Invoices removed */}
+          {/* STAT GRID */}
           <div className="stat-grid">
             <StatCard 
               icon={Users} 
@@ -317,7 +312,7 @@ const AdminDashboard = () => {
                             {totalCount}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--slate-500)', marginTop: 4 }}>
-                            <span style={{ color: '#16a34a' }}>{day.confirmed || 0} conf</span> · <span style={{ color: '#f59e0b' }}>{day.pending || 0} pend</span>
+                            <span style={{ color: '#16a34a' }}>{day.confirmed || 0} confirmed</span> · <span style={{ color: '#2563eb' }}>{day.completed || 0} completed</span>
                           </div>
                         </div>
                       );
@@ -344,8 +339,6 @@ const AdminDashboard = () => {
                                   </div>
                                   <div style={{ fontSize: 11.5, color: '#16a34a', marginTop: 3 }}>✓ Confirmed: {d.confirmed}</div>
                                   <div style={{ fontSize: 11.5, color: '#2563eb' }}>✓ Completed: {d.completed}</div>
-                                  <div style={{ fontSize: 11.5, color: '#d97706' }}>⌛ Pending: {d.pending}</div>
-                                  <div style={{ fontSize: 11.5, color: '#dc2626' }}>✕ Cancelled: {d.cancelled}</div>
                                 </div>
                               );
                             }
@@ -355,8 +348,6 @@ const AdminDashboard = () => {
                         <Legend wrapperStyle={{ fontSize: 12 }} />
                         <Bar dataKey="confirmed" name="Confirmed" fill="#10b981" stackId="a" radius={[0, 0, 0, 0]} />
                         <Bar dataKey="completed" name="Completed" fill="#3b82f6" stackId="a" radius={[0, 0, 0, 0]} />
-                        <Bar dataKey="pending" name="Pending" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} />
-                        <Bar dataKey="cancelled" name="Cancelled" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -393,7 +384,6 @@ const AdminDashboard = () => {
                           <th style={{ textAlign: 'center' }}>Total</th>
                           <th style={{ textAlign: 'center' }}>Confirmed</th>
                           <th style={{ textAlign: 'center' }}>Completed</th>
-                          <th style={{ textAlign: 'center' }}>Pending</th>
                           <th>Completion Rate</th>
                         </tr>
                       </thead>
@@ -425,9 +415,6 @@ const AdminDashboard = () => {
                             </td>
                             <td style={{ textAlign: 'center' }}>
                               <span style={{ color: '#2563eb', fontWeight: 600 }}>{doc.completed_appointments || 0}</span>
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <span style={{ color: '#d97706', fontWeight: 600 }}>{doc.pending_appointments || 0}</span>
                             </td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -495,26 +482,6 @@ const AdminDashboard = () => {
                       </div>
                       <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>
                         Prescriptions & records saved
-                      </div>
-                    </div>
-
-                    <div style={{ padding: 14, background: '#fffbeb', borderRadius: 10, border: '1px solid #fef3c7' }}>
-                      <div style={{ fontSize: 12, color: '#d97706', marginBottom: 4 }}>Pending Review</div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#b45309' }}>
-                        {overall.pending_appointments || 0}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>
-                        Awaiting clinic confirmation
-                      </div>
-                    </div>
-
-                    <div style={{ padding: 14, background: '#fef2f2', borderRadius: 10, border: '1px solid #fee2e2' }}>
-                      <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 4 }}>Cancelled / No Show</div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#b91c1c' }}>
-                        {overall.cancelled_appointments || 0}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
-                        Discontinued or missed
                       </div>
                     </div>
 
@@ -586,7 +553,7 @@ const AdminDashboard = () => {
                         <th>Department</th>
                         <th>Unique Patients</th>
                         <th>Completed</th>
-                        <th>Pending</th>
+                        <th>Confirmed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -595,7 +562,7 @@ const AdminDashboard = () => {
                           <td><strong>{d.dept_name}</strong></td>
                           <td>{d.unique_patients}</td>
                           <td><span className="badge badge-success">{d.completed}</span></td>
-                          <td><span className="badge badge-warning">{d.pending}</span></td>
+                          <td><span className="badge badge-info">{d.confirmed}</span></td>
                         </tr>
                       ))}
                     </tbody>
