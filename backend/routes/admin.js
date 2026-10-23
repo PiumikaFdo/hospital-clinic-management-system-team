@@ -8,7 +8,17 @@ const bcrypt = require('bcryptjs');
 router.get('/dashboard', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const [stats] = await pool.query('SELECT * FROM vw_admin_dashboard_stats');
-    const [deptStats] = await pool.query('SELECT * FROM vw_dept_patient_stats');
+    const [deptStats] = await pool.query(`
+      SELECT d.dept_id, d.dept_name,
+             COUNT(DISTINCT a.patient_id) AS unique_patients,
+             COUNT(a.appointment_id) AS total_appointments,
+             SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed,
+             SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed
+      FROM departments d
+      LEFT JOIN staff s ON d.dept_id = s.dept_id
+      LEFT JOIN appointments a ON s.staff_id = a.doctor_id
+      GROUP BY d.dept_id, d.dept_name
+    `);
     const [recentAppts] = await pool.query(
       `SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.status,
               COALESCE(CONCAT(u.first_name,' ',u.last_name), a.guest_name) AS patient_name,
@@ -80,24 +90,6 @@ router.get('/dashboard/details', authenticateToken, authorizeRoles('admin'), asy
           JOIN departments d ON s.dept_id = d.dept_id
           WHERE a.appointment_date = CURDATE()
           ORDER BY a.appointment_time ASC
-        `);
-        data = rows;
-        break;
-      }
-      case 'pending_appointments': {
-        const [rows] = await pool.query(`
-          SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.status, a.appointment_type, a.reason,
-                 COALESCE(CONCAT(u.first_name, ' ', u.last_name), a.guest_name) AS patient_name,
-                 COALESCE(u.phone, a.guest_phone) AS patient_phone,
-                 CONCAT(du.first_name, ' ', du.last_name) AS doctor_name, d.dept_name
-          FROM appointments a
-          LEFT JOIN patients p ON a.patient_id = p.patient_id
-          LEFT JOIN users u ON p.user_id = u.user_id
-          JOIN staff s ON a.doctor_id = s.staff_id
-          JOIN users du ON s.user_id = du.user_id
-          JOIN departments d ON s.dept_id = d.dept_id
-          WHERE a.status = 'Pending'
-          ORDER BY a.appointment_date ASC, a.appointment_time ASC
         `);
         data = rows;
         break;

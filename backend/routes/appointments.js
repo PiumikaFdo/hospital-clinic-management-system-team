@@ -59,7 +59,7 @@ router.get('/public/slots', async (req, res) => {
 
     const [booked] = await pool.query(
       `SELECT appointment_time FROM appointments
-       WHERE doctor_id=? AND appointment_date=? AND status NOT IN ('Cancelled','No_Show')`,
+       WHERE doctor_id=? AND appointment_date=?`,
       [doctor_id, date]
     );
     const bookedTimes = booked.map(b => b.appointment_time);
@@ -140,6 +140,9 @@ router.get('/', authenticateToken, async (req, res) => {
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
+    if (!['Confirmed', 'Completed'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Appointment status must be Confirmed or Completed' });
+    }
     await pool.query('UPDATE appointments SET status=? WHERE appointment_id=?', [status, req.params.id]);
     if (req.user && req.user.user_id) {
       await pool.query(

@@ -1166,8 +1166,6 @@ BEGIN
         COUNT(a.appointment_id) AS total_appointments,
         SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed,
         SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN a.status = 'Pending' THEN 1 ELSE 0 END) AS pending,
-        SUM(CASE WHEN a.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
         SUM(CASE WHEN a.appointment_type = 'Online' THEN 1 ELSE 0 END) AS online_count,
         SUM(CASE WHEN a.appointment_type = 'Walk-in' THEN 1 ELSE 0 END) AS walkin_count,
         SUM(CASE WHEN a.appointment_type = 'Emergency' THEN 1 ELSE 0 END) AS emergency_count
@@ -1199,8 +1197,6 @@ BEGIN
         SUM(CASE WHEN a.appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_appointments,
         SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
         SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
-        SUM(CASE WHEN a.status = 'Pending' THEN 1 ELSE 0 END) AS pending_appointments,
-        SUM(CASE WHEN a.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_appointments,
         ROUND(
             COALESCE(
                 SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(a.appointment_id), 0),
@@ -1225,8 +1221,6 @@ BEGIN
         SUM(CASE WHEN appointment_date > CURDATE() THEN 1 ELSE 0 END) AS future_appointments,
         SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
         SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
-        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending_appointments,
-        SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_appointments,
         COUNT(DISTINCT doctor_id) AS total_doctors_scheduled,
         COUNT(DISTINCT patient_id) AS total_patients_scheduled,
         ROUND(
@@ -1258,7 +1252,6 @@ SELECT
     (SELECT COUNT(*) FROM patients)                                             AS total_patients,
     (SELECT COUNT(*) FROM staff WHERE status='Active')                          AS total_active_staff,
     (SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE())      AS today_appointments,
-    (SELECT COUNT(*) FROM appointments WHERE status='Pending')                  AS pending_appointments,
     (SELECT COUNT(*) FROM admissions WHERE status='Active')                     AS current_admissions,
     (SELECT fn_monthly_revenue(YEAR(NOW()), MONTH(NOW())))                      AS current_month_revenue,
     (SELECT fn_low_stock_count())                                               AS low_stock_medicines,
@@ -1270,8 +1263,7 @@ SELECT
     COUNT(DISTINCT a.patient_id)                                                AS unique_patients,
     COUNT(a.appointment_id)                                                     AS total_appointments,
     SUM(CASE WHEN a.status='Completed' THEN 1 ELSE 0 END)                      AS completed,
-    SUM(CASE WHEN a.status='Pending'   THEN 1 ELSE 0 END)                      AS pending,
-    SUM(CASE WHEN a.status='Cancelled' THEN 1 ELSE 0 END)                      AS cancelled
+    SUM(CASE WHEN a.status='Confirmed' THEN 1 ELSE 0 END)                      AS confirmed
 FROM departments d
 LEFT JOIN staff s ON d.dept_id = s.dept_id
 LEFT JOIN appointments a ON s.staff_id = a.doctor_id
@@ -1741,9 +1733,9 @@ INSERT INTO lab_tests (test_name, category, description, normal_range, unit, pri
 -- Sample Appointments
 INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type) VALUES
 (1, 2, CURDATE(), '09:00:00', 'Chest pain and shortness of breath', 'Confirmed', 'Online'),
-(2, 3, CURDATE(), '08:00:00', 'Skin rash and itching',              'Pending',   'Walk-in'),
+(2, 3, CURDATE(), '08:00:00', 'Skin rash and itching',              'Confirmed', 'Walk-in'),
 (3, 6, CURDATE(), '10:00:00', 'Fever and headache',                 'Confirmed', 'Online'),
-(1, 6, DATE_ADD(CURDATE(), INTERVAL 2 DAY), '11:00:00', 'Follow-up visit',       'Pending', 'Online'),
+(1, 6, DATE_ADD(CURDATE(), INTERVAL 2 DAY), '11:00:00', 'Follow-up visit',       'Confirmed', 'Online'),
 (2, 2, DATE_ADD(CURDATE(), INTERVAL 1 DAY), '14:00:00', 'Hypertension checkup',  'Confirmed','Online');
 
 -- ============================================================
