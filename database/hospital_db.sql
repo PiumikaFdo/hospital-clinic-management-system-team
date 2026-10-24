@@ -606,7 +606,7 @@ BEGIN
     SELECT admission_date, COALESCE(discharge_date, NOW())
     INTO admit_date, discharge
     FROM admissions WHERE admission_id = p_admission_id;
-    RETURN DATEDIFF(discharge, admit_date);
+    RETURN GREATEST(1, DATEDIFF(discharge, admit_date));
 END$$
 
 -- FUNCTION 15: Count pending lab tests for a patient
@@ -1048,8 +1048,6 @@ CREATE PROCEDURE sp_process_payment(
     IN p_received_by INT
 )
 BEGIN
-    DECLARE v_total DECIMAL(10,2);
-    DECLARE v_paid DECIMAL(10,2);
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
@@ -1057,21 +1055,8 @@ BEGIN
     END;
 
     START TRANSACTION;
-    SELECT total_amount, paid_amount INTO v_total, v_paid
-    FROM bills WHERE bill_id = p_bill_id FOR UPDATE;
-
     INSERT INTO payments(bill_id, amount, payment_method, transaction_reference, received_by)
     VALUES(p_bill_id, p_amount, p_payment_method, p_transaction_ref, p_received_by);
-
-    UPDATE bills SET
-        paid_amount    = paid_amount + p_amount,
-        balance_amount = total_amount - (paid_amount + p_amount),
-        payment_status = CASE
-            WHEN total_amount <= (v_paid + p_amount) THEN 'Paid'
-            WHEN (v_paid + p_amount) > 0              THEN 'Partial'
-            ELSE 'Pending'
-        END
-    WHERE bill_id = p_bill_id;
     COMMIT;
 END$$
 
@@ -1252,6 +1237,7 @@ SELECT
     (SELECT COUNT(*) FROM patients)                                             AS total_patients,
     (SELECT COUNT(*) FROM staff WHERE status='Active')                          AS total_active_staff,
     (SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE())      AS today_appointments,
+    (SELECT COUNT(*) FROM appointments WHERE status='Pending')                  AS pending_appointments,
     (SELECT COUNT(*) FROM admissions WHERE status='Active')                     AS current_admissions,
     (SELECT fn_monthly_revenue(YEAR(NOW()), MONTH(NOW())))                      AS current_month_revenue,
     (SELECT fn_low_stock_count())                                               AS low_stock_medicines,
@@ -1263,6 +1249,8 @@ SELECT
     COUNT(DISTINCT a.patient_id)                                                AS unique_patients,
     COUNT(a.appointment_id)                                                     AS total_appointments,
     SUM(CASE WHEN a.status='Completed' THEN 1 ELSE 0 END)                      AS completed,
+    SUM(CASE WHEN a.status='Pending'   THEN 1 ELSE 0 END)                      AS pending,
+    SUM(CASE WHEN a.status='Cancelled' THEN 1 ELSE 0 END)                      AS cancelled
     SUM(CASE WHEN a.status='Confirmed' THEN 1 ELSE 0 END)                      AS confirmed
 FROM departments d
 LEFT JOIN staff s ON d.dept_id = s.dept_id
@@ -1404,7 +1392,7 @@ FROM patients p JOIN users u ON p.user_id = u.user_id$$
 CREATE VIEW vw_current_admissions AS
 SELECT
     ad.admission_id, ad.admission_date, ad.reason_for_admission, ad.status,
-    DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date) AS days_admitted,
+    GREATEST(1, DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date)) AS days_admitted,
     p.patient_id, p.patient_code, p.blood_group,
     CONCAT(pu.first_name,' ',pu.last_name) AS patient_name, pu.phone,
     w.ward_name, w.ward_type, b.bed_number,
@@ -1516,12 +1504,15 @@ CREATE TRIGGER trg_after_payment_insert
 AFTER INSERT ON payments
 FOR EACH ROW
 BEGIN
+    DECLARE v_total_paid DECIMAL(10,2);
+    SELECT COALESCE(SUM(amount), 0) INTO v_total_paid FROM payments WHERE bill_id = NEW.bill_id;
+
     UPDATE bills SET
-        paid_amount    = paid_amount + NEW.amount,
-        balance_amount = total_amount - (paid_amount + NEW.amount),
+        paid_amount    = v_total_paid,
+        balance_amount = GREATEST(0, total_amount - v_total_paid),
         payment_status = CASE
-            WHEN total_amount <= (paid_amount + NEW.amount) THEN 'Paid'
-            WHEN (paid_amount + NEW.amount) > 0             THEN 'Partial'
+            WHEN total_amount <= v_total_paid THEN 'Paid'
+            WHEN v_total_paid > 0             THEN 'Partial'
             ELSE 'Pending'
         END
     WHERE bill_id = NEW.bill_id;
