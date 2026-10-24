@@ -27,7 +27,10 @@ import {
   Building,
   ShieldCheck,
   AlertTriangle,
-  Phone
+  Phone,
+  Info,
+  Archive,
+  ArrowRight
 } from 'lucide-react';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
@@ -53,14 +56,14 @@ const INITIAL_FORM = {
   book_appointment: false,
   doctor_id: '',
   appt_date: new Date().toISOString().split('T')[0],
-  appt_time: '09:00',
+  appt_time: '',
   reason: ''
 };
 
 const ReceptionistPatients = () => {
   const navigate = useNavigate();
 
-  // State
+  // Primary State
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +83,26 @@ const ReceptionistPatients = () => {
   const [patientDossier, setPatientDossier] = useState(null);
   const [dossierLoading, setDossierLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Doctor schedule and time slots state for booking
+  const [doctorSchedules, setDoctorSchedules] = useState([]);
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState('');
+
+  // Close modals on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowRegisterModal(false);
+        setShowEditModal(false);
+        setShowViewModal(false);
+        setShowDeleteModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Fetch Patients List
   const loadPatients = async () => {
@@ -123,17 +146,80 @@ const ReceptionistPatients = () => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
+  // Fetch Doctor Schedule when doctor_id changes in registration
+  useEffect(() => {
+    if (form.doctor_id) {
+      API.get(`/receptionist/doctors/${form.doctor_id}/schedule`)
+        .then(res => {
+          setDoctorSchedules(res.data.data || []);
+        })
+        .catch(err => {
+          console.error('Failed to fetch doctor schedule:', err);
+          setDoctorSchedules([]);
+        });
+    } else {
+      setDoctorSchedules([]);
+      setAvailableSlots([]);
+      setScheduleMessage('');
+    }
+  }, [form.doctor_id]);
+
+  // Fetch Live Time Slots when doctor_id or appt_date changes
+  useEffect(() => {
+    if (!form.doctor_id || !form.appt_date) {
+      setAvailableSlots([]);
+      setScheduleMessage('');
+      return;
+    }
+
+    const d = new Date(form.appt_date + 'T00:00:00');
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[d.getDay()];
+
+    const isDayAvailable = doctorSchedules.some(s => s.day_of_week === dayName && s.is_available);
+
+    if (doctorSchedules.length > 0 && !isDayAvailable) {
+      const workingDays = doctorSchedules.map(s => s.day_of_week).join(', ');
+      setScheduleMessage(`Doctor is not scheduled on ${dayName}s. Scheduled working days: ${workingDays}.`);
+      setAvailableSlots([]);
+      return;
+    }
+
+    setScheduleMessage('');
+    setLoadingSlots(true);
+    API.get(`/appointments/public/slots?doctor_id=${form.doctor_id}&date=${form.appt_date}`)
+      .then(res => {
+        const slots = res.data.data || [];
+        setAvailableSlots(slots);
+        if (slots.length === 0) {
+          setScheduleMessage(res.data.message || 'No appointment slots available for this date.');
+        } else {
+          // If current selected time is not in available slots, pick first available
+          const firstAvail = slots.find(s => s.available);
+          if (firstAvail && !slots.some(s => s.time === form.appt_time && s.available)) {
+            setFormField('appt_time', firstAvail.time);
+          }
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setAvailableSlots([]);
+      })
+      .finally(() => setLoadingSlots(false));
+  }, [form.doctor_id, form.appt_date, doctorSchedules]);
+
   // KPI Calculations
   const stats = useMemo(() => {
     const total = patients.length;
     const todayStr = new Date().toISOString().split('T')[0];
     const registeredToday = patients.filter(p => p.registered_at && p.registered_at.startsWith(todayStr)).length;
-    const withEmergency = patients.filter(p => p.emergency_contact || p.emergency_contact_name).length;
     const currentlyAdmitted = patients.filter(p => p.active_admission_id).length;
+    const pendingBillsCount = patients.filter(p => Number(p.pending_bills_count) > 0).length;
+
     return {
       total,
       registeredToday,
-      emergencyCoverage: total > 0 ? Math.round((withEmergency / total) * 100) : 0,
+      pendingBillsCount,
       currentlyAdmitted
     };
   }, [patients]);
@@ -173,6 +259,11 @@ const ReceptionistPatients = () => {
       };
 
       if (form.book_appointment && form.doctor_id) {
+        if (!form.appt_time) {
+          toast.warning('Please select an available appointment time slot');
+          setSubmitting(false);
+          return;
+        }
         payload.doctor_id = form.doctor_id;
         payload.appt_date = form.appt_date;
         payload.appt_time = form.appt_time;
@@ -304,7 +395,9 @@ const ReceptionistPatients = () => {
 
   return (
     <DashboardLayout title="Patient Registration & Clinical Intake">
-      {/* 1. TOP KPI STATS SUMMARY CARDS */}
+      {/* ======================================================== */}
+      {/* 1. TOP KPI STATS SUMMARY CARDS (UPGRADED)                */}
+      {/* ======================================================== */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -343,7 +436,7 @@ const ReceptionistPatients = () => {
               {stats.total}
             </div>
             <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 500, marginTop: '2px' }}>
-              Active Patient Profiles
+              Active Patient Master Files
             </div>
           </div>
         </div>
@@ -380,12 +473,12 @@ const ReceptionistPatients = () => {
               {stats.registeredToday}
             </div>
             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-              New admissions & walk-ins
+              Newly admitted & walk-ins
             </div>
           </div>
         </div>
 
-        {/* Emergency Contact Coverage */}
+        {/* Unsettled Patient Bills (Replaced Safety Verification Card) */}
         <div style={{
           background: '#ffffff',
           borderRadius: '12px',
@@ -394,30 +487,34 @@ const ReceptionistPatients = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           display: 'flex',
           alignItems: 'center',
-          gap: '14px'
-        }}>
+          gap: '14px',
+          cursor: 'pointer'
+        }}
+        onClick={() => navigate('/receptionist/billing?status=Pending')}
+        title="View Pending Patient Bills"
+        >
           <div style={{
             width: '46px',
             height: '46px',
             borderRadius: '10px',
-            background: 'rgba(239, 68, 68, 0.1)',
-            color: '#ef4444',
+            background: 'rgba(245, 158, 11, 0.1)',
+            color: '#d97706',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <ShieldAlert size={24} />
+            <CreditCard size={24} />
           </div>
           <div>
             <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Emergency Contacts
+              Pending Invoices
             </div>
             <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-              {stats.emergencyCoverage}%
+              {stats.pendingBillsCount}
             </div>
-            <div style={{ fontSize: '11px', color: stats.emergencyCoverage >= 80 ? '#10b981' : '#f59e0b', fontWeight: 500, marginTop: '2px' }}>
-              Safety Contact Verification
+            <div style={{ fontSize: '11px', color: '#d97706', fontWeight: 500, marginTop: '2px' }}>
+              Awaiting Cashier Clearance →
             </div>
           </div>
         </div>
@@ -458,13 +555,15 @@ const ReceptionistPatients = () => {
               {stats.currentlyAdmitted}
             </div>
             <div style={{ fontSize: '11px', color: '#8b5cf6', fontWeight: 500, marginTop: '2px' }}>
-              View Ward Beds →
+              Live Ward Bed Occupancy →
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. FILTER & ACTION TOOLBAR */}
+      {/* ======================================================== */}
+      {/* 2. FILTER & ACTION TOOLBAR                               */}
+      {/* ======================================================== */}
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
@@ -568,7 +667,9 @@ const ReceptionistPatients = () => {
         </div>
       </div>
 
-      {/* 3. PATIENTS TABLE */}
+      {/* ======================================================== */}
+      {/* 3. PATIENTS TABLE                                        */}
+      {/* ======================================================== */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
         <div className="table-container" style={{ margin: 0 }}>
           <table className="table" style={{ margin: 0 }}>
@@ -798,7 +899,7 @@ const ReceptionistPatients = () => {
                           <Bed size={14} />
                         </button>
 
-                        {/* Quick Generate Bill */}
+                        {/* Filtered Billing: Shows ONLY this patient's billing records */}
                         <button
                           className="btn btn-sm"
                           style={{
@@ -808,7 +909,7 @@ const ReceptionistPatients = () => {
                             color: '#10b981',
                             border: 'none'
                           }}
-                          title="Generate / View Bill"
+                          title={`View Only ${p.first_name}'s Billing Records`}
                           onClick={() => navigate(`/receptionist/billing?patient_id=${p.patient_id}`)}
                         >
                           <CreditCard size={14} />
@@ -869,32 +970,37 @@ const ReceptionistPatients = () => {
       </div>
 
       {/* ======================================================== */}
-      {/* 4. MULTI-SECTION REGISTER PATIENT MODAL                  */}
+      {/* 4. MULTI-SECTION REGISTER PATIENT POPUP MODAL            */}
       {/* ======================================================== */}
       {showRegisterModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowRegisterModal(false)}>
-          <div className="modal" style={{ maxWidth: '800px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             {/* Modal Header */}
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '16px 24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <UserPlus size={20} color="#2563eb" />
                   New Patient Intake & Registration
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
-                  Enter demographics, mandatory emergency contacts, clinical profile, and optional walk-in appointment.
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  Enter patient demographics, emergency contacts, clinical baseline, and schedule doctor consultations.
                 </p>
               </div>
-              <button className="modal-close" onClick={() => setShowRegisterModal(false)}>
-                <X size={18} />
+              <button
+                className="modal-close"
+                style={{ background: '#f1f5f9', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}
+                onClick={() => setShowRegisterModal(false)}
+                title="Close Form (Esc)"
+              >
+                <X size={18} color="#475569" />
               </button>
             </div>
 
             {/* Modal Form */}
             <form onSubmit={handleRegister}>
-              <div className="modal-body" style={{ padding: '20px 24px' }}>
+              <div className="modal-body" style={{ padding: '22px 24px' }}>
                 {/* SECTION 1: PERSONAL DEMOGRAPHICS */}
-                <div style={{ marginBottom: '22px' }}>
+                <div style={{ marginBottom: '24px' }}>
                   <div style={{
                     fontSize: '13px',
                     fontWeight: 700,
@@ -993,13 +1099,13 @@ const ReceptionistPatients = () => {
                   </div>
                 </div>
 
-                {/* SECTION 2: EMERGENCY CONTACT & NEXT OF KIN (HIGHLIGHTED) */}
+                {/* SECTION 2: EMERGENCY CONTACT & NEXT OF KIN */}
                 <div style={{
                   background: '#fff1f2',
                   border: '1px solid #fecdd3',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   padding: '16px 18px',
-                  marginBottom: '22px'
+                  marginBottom: '24px'
                 }}>
                   <div style={{
                     fontSize: '13px',
@@ -1013,7 +1119,7 @@ const ReceptionistPatients = () => {
                     gap: '6px'
                   }}>
                     <ShieldAlert size={16} />
-                    2. Emergency Contact & Next of Kin (Crucial Safety Field)
+                    2. Emergency Contact & Next of Kin
                   </div>
 
                   <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
@@ -1041,8 +1147,8 @@ const ReceptionistPatients = () => {
                   </div>
                 </div>
 
-                {/* SECTION 3: CLINICAL & MEDICAL INTAKE */}
-                <div style={{ marginBottom: '22px' }}>
+                {/* SECTION 3: CLINICAL BASELINE & INSURANCE */}
+                <div style={{ marginBottom: '24px' }}>
                   <div style={{
                     fontSize: '13px',
                     fontWeight: 700,
@@ -1116,21 +1222,26 @@ const ReceptionistPatients = () => {
                   </div>
                 </div>
 
-                {/* SECTION 4: OPTIONAL WALK-IN DOCTOR APPOINTMENT */}
+                {/* SECTION 4: DOCTOR CONSULTATION WITH LIVE DOCTOR AVAILABILITY */}
                 <div style={{
                   background: '#f8fafc',
                   border: '1px solid #e2e8f0',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   padding: '16px 18px'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: form.book_appointment ? '14px' : '0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Stethoscope size={16} color="#475569" />
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
-                        Initial Doctor Consultation (Optional)
-                      </span>
+                      <Stethoscope size={18} color="#2563eb" />
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                          Doctor Consultation Booking (Optional)
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                          Assign patient to on-duty specialist with live time slots
+                        </div>
+                      </div>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#2563eb' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: '#2563eb', background: '#eff6ff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
                       <input
                         type="checkbox"
                         checked={form.book_appointment}
@@ -1141,73 +1252,175 @@ const ReceptionistPatients = () => {
                   </div>
 
                   {form.book_appointment && (
-                    <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-                      <div className="form-group">
-                        <label className="form-label">Attending Doctor *</label>
-                        <select
-                          className="form-control"
-                          value={form.doctor_id}
-                          onChange={e => setFormField('doctor_id', e.target.value)}
-                          required={form.book_appointment}
-                        >
-                          <option value="">-- Select Doctor --</option>
-                          {doctors.map(d => (
-                            <option key={d.staff_id} value={d.staff_id}>
-                              Dr. {d.doctor_name} ({d.dept_name})
-                            </option>
-                          ))}
-                        </select>
+                    <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                        {/* Select Doctor */}
+                        <div className="form-group">
+                          <label className="form-label">Attending Doctor *</label>
+                          <select
+                            className="form-control"
+                            value={form.doctor_id}
+                            onChange={e => setFormField('doctor_id', e.target.value)}
+                            required={form.book_appointment}
+                          >
+                            <option value="">-- Select Specialist Doctor --</option>
+                            {doctors.map(d => (
+                              <option key={d.staff_id} value={d.staff_id}>
+                                Dr. {d.doctor_name} ({d.dept_name})
+                              </option>
+                            ))}
+                          </select>
+                          {doctorSchedules.length > 0 && (
+                            <div style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600, marginTop: '4px' }}>
+                              📅 Duty Days: {doctorSchedules.map(s => `${s.day_of_week} (${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)})`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Consultation Date */}
+                        <div className="form-group">
+                          <label className="form-label">Consultation Date *</label>
+                          <input
+                            type="date"
+                            className="form-control"
+                            value={form.appt_date}
+                            min={new Date().toISOString().split('T')[0]}
+                            onChange={e => setFormField('appt_date', e.target.value)}
+                            required={form.book_appointment}
+                          />
+                        </div>
+
+                        {/* Complaint / Reason */}
+                        <div className="form-group">
+                          <label className="form-label">Chief Complaint / Reason</label>
+                          <input
+                            className="form-control"
+                            placeholder="e.g. Chest pain, Fever, Regular checkup"
+                            value={form.reason}
+                            onChange={e => setFormField('reason', e.target.value)}
+                          />
+                        </div>
                       </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Date</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          value={form.appt_date}
-                          onChange={e => setFormField('appt_date', e.target.value)}
-                        />
-                      </div>
+                      {/* Live Doctor Available Time Slots */}
+                      {form.doctor_id && form.appt_date && (
+                        <div style={{
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '10px',
+                          padding: '14px 16px',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                        }}>
+                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                            <Clock size={15} color="#2563eb" />
+                            <span>Select Doctor Available Time Slot:</span>
+                            {form.appt_time && (
+                              <span style={{ marginLeft: 'auto', color: '#16a34a', fontWeight: 700, background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontSize: '11px' }}>
+                                Selected: {form.appt_time.slice(0, 5)}
+                              </span>
+                            )}
+                          </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Time</label>
-                        <input
-                          type="time"
-                          className="form-control"
-                          value={form.appt_time}
-                          onChange={e => setFormField('appt_time', e.target.value)}
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Reason / Complaint</label>
-                        <input
-                          className="form-control"
-                          placeholder="e.g. Chest pain, Fever, Routine checkup"
-                          value={form.reason}
-                          onChange={e => setFormField('reason', e.target.value)}
-                        />
-                      </div>
+                          {loadingSlots ? (
+                            <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 0' }}>
+                              <RefreshCw size={14} className="spin" color="#2563eb" />
+                              <span>Checking doctor's real-time schedule & bookings...</span>
+                            </div>
+                          ) : scheduleMessage ? (
+                            <div style={{ fontSize: '12px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px' }}>
+                              ⚠️ {scheduleMessage}
+                            </div>
+                          ) : availableSlots.length > 0 ? (
+                            <div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {availableSlots.map(slot => {
+                                  const isSelected = form.appt_time === slot.time;
+                                  return (
+                                    <button
+                                      key={slot.time}
+                                      type="button"
+                                      disabled={!slot.available}
+                                      onClick={() => setFormField('appt_time', slot.time)}
+                                      style={{
+                                        padding: '7px 12px',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        fontWeight: isSelected ? 700 : 500,
+                                        cursor: slot.available ? 'pointer' : 'not-allowed',
+                                        border: isSelected ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                        background: isSelected ? '#eff6ff' : slot.available ? '#ffffff' : '#f1f5f9',
+                                        color: isSelected ? '#1d4ed8' : slot.available ? '#0f172a' : '#94a3b8',
+                                        textDecoration: slot.available ? 'none' : 'line-through',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                      title={slot.available ? 'Click to select this time slot' : 'Slot already booked'}
+                                    >
+                                      {slot.time.slice(0, 5)} {isSelected ? '✓' : ''}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '8px' }}>
+                                💡 Slots are generated in 30-min intervals according to doctor's active clinic hours. Crossed-out slots are already occupied.
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                              Select a working date to view available appointment slots.
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Modal Footer */}
-              <div className="modal-footer" style={{ borderTop: '1px solid #e2e8f0', padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              {/* Modal Footer with Nicely Styled Cancel & Submit */}
+              <div className="modal-footer" style={{
+                borderTop: '1px solid #e2e8f0',
+                padding: '16px 24px',
+                background: '#f8fafc',
+                borderBottomLeftRadius: '14px',
+                borderBottomRightRadius: '14px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    color: '#475569'
+                  }}
                   onClick={() => setShowRegisterModal(false)}
                   disabled={submitting}
                 >
+                  <X size={15} />
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
                   disabled={submitting}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{
+                    padding: '8px 22px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 2px 6px rgba(37,99,235,0.25)'
+                  }}
                 >
                   <UserPlus size={16} />
                   {submitting ? 'Registering...' : 'Complete Patient Intake'}
@@ -1219,28 +1432,33 @@ const ReceptionistPatients = () => {
       )}
 
       {/* ======================================================== */}
-      {/* 5. EDIT PATIENT MODAL                                    */}
+      {/* 5. EDIT PATIENT POPUP MODAL                              */}
       {/* ======================================================== */}
       {showEditModal && selectedPatient && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowEditModal(false)}>
-          <div className="modal" style={{ maxWidth: '780px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '16px 24px' }}>
+          <div className="modal" style={{ maxWidth: '800px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Edit2 size={18} color="#2563eb" />
                   Edit Patient Profile: {selectedPatient.patient_code}
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
                   Update demographic details, emergency contact, or medical baseline.
                 </p>
               </div>
-              <button className="modal-close" onClick={() => setShowEditModal(false)}>
-                <X size={18} />
+              <button
+                className="modal-close"
+                style={{ background: '#f1f5f9', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}
+                onClick={() => setShowEditModal(false)}
+                title="Close (Esc)"
+              >
+                <X size={18} color="#475569" />
               </button>
             </div>
 
             <form onSubmit={handleUpdate}>
-              <div className="modal-body" style={{ padding: '20px 24px' }}>
+              <div className="modal-body" style={{ padding: '22px 24px' }}>
                 {/* Demographics */}
                 <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '18px' }}>
                   <div className="form-group">
@@ -1308,7 +1526,7 @@ const ReceptionistPatients = () => {
                   </div>
                 </div>
 
-                <div className="form-group" style={{ marginBottom: '18px' }}>
+                <div className="form-group" style={{ marginBottom: '20px' }}>
                   <label className="form-label">Address</label>
                   <input
                     className="form-control"
@@ -1321,14 +1539,14 @@ const ReceptionistPatients = () => {
                 <div style={{
                   background: '#fff1f2',
                   border: '1px solid #fecdd3',
-                  borderRadius: '10px',
-                  padding: '14px 16px',
-                  marginBottom: '18px'
+                  borderRadius: '12px',
+                  padding: '16px 18px',
+                  marginBottom: '20px'
                 }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#e11d48', textTransform: 'uppercase', marginBottom: '10px' }}>
-                    🚨 Emergency Contact (Next of Kin)
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#e11d48', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <ShieldAlert size={15} /> Emergency Contact (Next of Kin)
                   </div>
-                  <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                     <div className="form-group">
                       <label className="form-label" style={{ color: '#9f1239' }}>Contact Name & Relation</label>
                       <input
@@ -1336,17 +1554,17 @@ const ReceptionistPatients = () => {
                         value={form.emergency_contact_name}
                         onChange={e => setFormField('emergency_contact_name', e.target.value)}
                         placeholder="e.g. Jane Doe (Spouse)"
-                        style={{ background: '#ffffff' }}
+                        style={{ background: '#ffffff', borderColor: '#f43f5e' }}
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label" style={{ color: '#9f1239' }}>Contact Phone</label>
+                      <label className="form-label" style={{ color: '#9f1239' }}>Emergency Phone</label>
                       <input
                         className="form-control"
                         value={form.emergency_contact}
                         onChange={e => setFormField('emergency_contact', e.target.value)}
                         placeholder="e.g. 077 123 4567"
-                        style={{ background: '#ffffff' }}
+                        style={{ background: '#ffffff', borderColor: '#f43f5e' }}
                       />
                     </div>
                   </div>
@@ -1409,20 +1627,52 @@ const ReceptionistPatients = () => {
                 </div>
               </div>
 
-              <div className="modal-footer" style={{ borderTop: '1px solid #e2e8f0', padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer" style={{
+                borderTop: '1px solid #e2e8f0',
+                padding: '16px 24px',
+                background: '#f8fafc',
+                borderBottomLeftRadius: '14px',
+                borderBottomRightRadius: '14px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    color: '#475569'
+                  }}
                   onClick={() => setShowEditModal(false)}
                   disabled={submitting}
                 >
+                  <X size={15} />
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
                   disabled={submitting}
+                  style={{
+                    padding: '8px 22px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 2px 6px rgba(37,99,235,0.25)'
+                  }}
                 >
+                  <CheckCircle2 size={16} />
                   {submitting ? 'Saving Changes...' : 'Save Patient Profile'}
                 </button>
               </div>
@@ -1432,29 +1682,34 @@ const ReceptionistPatients = () => {
       )}
 
       {/* ======================================================== */}
-      {/* 6. VIEW PATIENT INTAKE DOSSIER MODAL                     */}
+      {/* 6. VIEW PATIENT INTAKE DOSSIER POPUP MODAL               */}
       {/* ======================================================== */}
       {showViewModal && selectedPatient && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowViewModal(false)}>
-          <div className="modal" style={{ maxWidth: '780px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '16px 24px' }}>
+          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <FileText size={20} color="#2563eb" />
                   Patient Clinical Intake Dossier
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
                   Comprehensive medical intake, emergency contacts, admissions, and financial overview.
                 </p>
               </div>
-              <button className="modal-close" onClick={() => setShowViewModal(false)}>
-                <X size={18} />
+              <button
+                className="modal-close"
+                style={{ background: '#f1f5f9', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}
+                onClick={() => setShowViewModal(false)}
+                title="Close (Esc)"
+              >
+                <X size={18} color="#475569" />
               </button>
             </div>
 
-            <div className="modal-body" style={{ padding: '20px 24px' }}>
+            <div className="modal-body" style={{ padding: '22px 24px' }}>
               {dossierLoading ? (
-                <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
                   <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px' }} />
                   <div>Loading patient dossier...</div>
                 </div>
@@ -1471,7 +1726,8 @@ const ReceptionistPatients = () => {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: '16px',
-                    marginBottom: '20px'
+                    marginBottom: '20px',
+                    boxShadow: '0 4px 12px rgba(15,23,42,0.15)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                       <div style={{
@@ -1509,8 +1765,8 @@ const ReceptionistPatients = () => {
                         color: '#fff',
                         fontWeight: 800,
                         fontSize: '14px',
-                        padding: '3px 12px',
-                        borderRadius: '6px',
+                        padding: '4px 14px',
+                        borderRadius: '8px',
                         marginTop: '4px'
                       }}>
                         {patientDossier.blood_group || 'N/A'}
@@ -1522,9 +1778,9 @@ const ReceptionistPatients = () => {
                   <div style={{
                     background: '#fff1f2',
                     border: '1px solid #fecdd3',
-                    borderRadius: '10px',
+                    borderRadius: '12px',
                     padding: '16px 18px',
-                    marginBottom: '18px'
+                    marginBottom: '20px'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, color: '#e11d48', textTransform: 'uppercase', marginBottom: '8px' }}>
                       <ShieldAlert size={16} />
@@ -1550,7 +1806,7 @@ const ReceptionistPatients = () => {
                       </div>
                     ) : (
                       <div style={{ fontSize: '13px', color: '#9f1239', fontStyle: 'italic' }}>
-                        ⚠️ No emergency contact on record. Click "Edit Patient" to register next of kin.
+                        ⚠️ No emergency contact on record. Click "Edit Profile" below to register next of kin.
                       </div>
                     )}
                   </div>
@@ -1674,41 +1930,65 @@ const ReceptionistPatients = () => {
               ) : null}
             </div>
 
-            <div className="modal-footer" style={{ borderTop: '1px solid #e2e8f0', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setShowViewModal(false);
-                    openEditModal(selectedPatient);
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <Edit2 size={13} /> Edit Profile
-                </button>
+            {/* Modal Footer with "View Closes When Edit Clicked" */}
+            <div className="modal-footer" style={{
+              borderTop: '1px solid #e2e8f0',
+              padding: '16px 24px',
+              background: '#f8fafc',
+              borderBottomLeftRadius: '14px',
+              borderBottomRightRadius: '14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {/* Edit Button: Closes View Modal and Opens Edit Modal */}
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => {
                     setShowViewModal(false);
+                    openEditModal(selectedPatient);
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px' }}
+                >
+                  <Edit2 size={14} /> Edit Profile
+                </button>
+
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setShowViewModal(false);
                     navigate(`/receptionist/admissions?patient_id=${selectedPatient.patient_id}`);
                   }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px' }}
                 >
-                  <Bed size={13} /> Admit to Bed
+                  <Bed size={14} /> Admit to Bed
                 </button>
+
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setShowViewModal(false);
                     navigate(`/receptionist/billing?patient_id=${selectedPatient.patient_id}`);
                   }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', borderRadius: '8px' }}
                 >
-                  <CreditCard size={13} /> View / Create Bill
+                  <CreditCard size={14} /> View Only This Patient's Bills
                 </button>
               </div>
 
-              <button className="btn btn-secondary" onClick={() => setShowViewModal(false)}>
+              <button
+                className="btn btn-secondary"
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#475569'
+                }}
+                onClick={() => setShowViewModal(false)}
+              >
                 Close
               </button>
             </div>
@@ -1717,51 +1997,154 @@ const ReceptionistPatients = () => {
       )}
 
       {/* ======================================================== */}
-      {/* 7. DELETE / DEACTIVATE CONFIRMATION MODAL                */}
+      {/* 7. DELETE / DEACTIVATE EXPLANATION POPUP MODAL           */}
       {/* ======================================================== */}
       {showDeleteModal && selectedPatient && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowDeleteModal(false)}>
-          <div className="modal" style={{ maxWidth: '480px' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #fee2e2' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="modal" style={{ maxWidth: '560px', width: '95%', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #fee2e2', padding: '18px 24px', background: '#fff5f5', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} />
-                Delete or Deactivate Patient
+                Patient Record Deletion & Deactivation
               </h3>
-              <button className="modal-close" onClick={() => setShowDeleteModal(false)}>
-                <X size={16} />
+              <button
+                className="modal-close"
+                style={{ background: '#fee2e2', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}
+                onClick={() => setShowDeleteModal(false)}
+                title="Cancel (Esc)"
+              >
+                <X size={16} color="#dc2626" />
               </button>
             </div>
 
-            <div className="modal-body" style={{ padding: '20px' }}>
-              <p style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6 }}>
-                Are you sure you want to remove patient <strong>{selectedPatient.first_name} {selectedPatient.last_name}</strong> (<code>{selectedPatient.patient_code}</code>)?
-              </p>
+            <div className="modal-body" style={{ padding: '22px 24px' }}>
+              {/* Target Patient Card */}
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                    {selectedPatient.first_name} {selectedPatient.last_name}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    Patient ID: <strong style={{ color: '#2563eb', fontFamily: 'monospace' }}>{selectedPatient.patient_code}</strong> • {selectedPatient.phone}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span className="badge" style={{ background: '#fef2f2', color: '#dc2626', fontWeight: 700, fontSize: '12px' }}>
+                    {selectedPatient.blood_group || 'N/A'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Detailed Explanation of How Deletion Works */}
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Info size={16} color="#2563eb" />
+                How Patient Deletion Works in Hospital Systems:
+              </div>
+
+              <div style={{
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                marginBottom: '10px',
+                fontSize: '12px',
+                color: '#166534',
+                lineHeight: 1.5
+              }}>
+                <strong>Scenario A: Clean Deletion (New / Zero Activity)</strong>
+                <p style={{ margin: '4px 0 0', color: '#15803d' }}>
+                  If this patient was registered by mistake and has <strong>0 appointments, 0 ward admissions, and 0 bills</strong>, the profile is permanently deleted from the database.
+                </p>
+              </div>
+
               <div style={{
                 background: '#fff1f2',
                 border: '1px solid #fecdd3',
-                borderRadius: '8px',
-                padding: '12px',
+                borderRadius: '10px',
+                padding: '12px 14px',
                 fontSize: '12px',
                 color: '#9f1239',
-                marginTop: '12px'
+                lineHeight: 1.5
               }}>
-                ℹ️ <strong>Medical Audit Safeguard:</strong> If this patient has linked appointment, prescription, admission, or billing records, their record will be <strong>safely deactivated</strong> instead of deleted to protect hospital legal audit trails.
+                <strong>Scenario B: Safe Deactivation (Medical Audit Retention)</strong>
+                <p style={{ margin: '4px 0 0', color: '#be123c' }}>
+                  Healthcare compliance laws prohibit deleting records with clinical or financial history. If this patient has past appointments, admissions, or bills, the system <strong>Safely Deactivates</strong> the profile. Historical doctor notes and receipts are preserved, but the patient cannot book future visits.
+                </p>
+              </div>
+
+              {/* Patient's Current Record Counts */}
+              <div style={{
+                marginTop: '16px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                color: '#475569'
+              }}>
+                <span>Appointments: <strong>{selectedPatient.total_appointments || 0}</strong></span>
+                <span>Active Ward Admission: <strong>{selectedPatient.active_admission_id ? 'Yes' : 'None'}</strong></span>
+                <span>Pending Bills: <strong>{selectedPatient.pending_bills_count || 0}</strong></span>
               </div>
             </div>
 
-            <div className="modal-footer" style={{ borderTop: '1px solid #e2e8f0', padding: '12px 20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div className="modal-footer" style={{
+              borderTop: '1px solid #e2e8f0',
+              padding: '16px 24px',
+              background: '#f8fafc',
+              borderBottomLeftRadius: '14px',
+              borderBottomRightRadius: '14px',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
               <button
+                type="button"
                 className="btn btn-secondary"
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#475569'
+                }}
                 onClick={() => setShowDeleteModal(false)}
                 disabled={submitting}
               >
+                <X size={15} />
                 Cancel
               </button>
               <button
+                type="button"
                 className="btn btn-danger"
+                style={{
+                  padding: '8px 22px',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
                 onClick={handleDelete}
                 disabled={submitting}
               >
+                <Trash2 size={16} />
                 {submitting ? 'Processing...' : 'Confirm Action'}
               </button>
             </div>

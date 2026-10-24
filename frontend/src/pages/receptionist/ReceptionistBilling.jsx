@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { 
   Printer, 
@@ -14,13 +15,17 @@ import {
   Clock, 
   CheckCircle2, 
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 import PrintableInvoiceModal from '../../components/PrintableInvoiceModal';
 
 const ReceptionistBilling = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const patientIdParam = searchParams.get('patient_id');
+
   const [activeTab, setActiveTab] = useState('invoices'); // 'invoices' | 'payments'
   const [bills, setBills] = useState([]);
   const [paymentsList, setPaymentsList] = useState([]);
@@ -36,7 +41,7 @@ const ReceptionistBilling = () => {
   const [showBillModal, setShowBillModal] = useState(false);
   const [showPayModal, setShowPayModal]   = useState(null);
   const [billForm, setBillForm] = useState({ 
-    patient_id:'', appointment_id:'', admission_id:'', 
+    patient_id: patientIdParam || '', appointment_id:'', admission_id:'', 
     doctor_fees:0, hospital_fees:500, discount:0, tax_rate:0 
   });
   const [payForm, setPayForm] = useState({ amount:'', payment_method:'Cash', transaction_reference:'' });
@@ -56,12 +61,14 @@ const ReceptionistBilling = () => {
     try {
       const billsParams = new URLSearchParams();
       if (statusFilter) billsParams.append('status', statusFilter);
+      if (patientIdParam) billsParams.append('patient_id', patientIdParam);
       if (startDate) billsParams.append('start_date', startDate);
       if (endDate) billsParams.append('end_date', endDate);
       if (search) billsParams.append('search', search);
 
       const payParams = new URLSearchParams();
       if (paymentMethodFilter && paymentMethodFilter !== 'ALL') payParams.append('payment_method', paymentMethodFilter);
+      if (patientIdParam) payParams.append('patient_id', patientIdParam);
       if (startDate) payParams.append('start_date', startDate);
       if (endDate) payParams.append('end_date', endDate);
       payParams.append('limit', 150);
@@ -83,7 +90,13 @@ const ReceptionistBilling = () => {
 
   useEffect(() => {
     fetchData();
-  }, [statusFilter, startDate, endDate, paymentMethodFilter]);
+  }, [statusFilter, startDate, endDate, paymentMethodFilter, patientIdParam]);
+
+  useEffect(() => {
+    if (patientIdParam) {
+      setBillForm(prev => ({ ...prev, patient_id: patientIdParam }));
+    }
+  }, [patientIdParam]);
 
   useEffect(() => {
     API.get('/receptionist/patients')
@@ -227,6 +240,39 @@ const ReceptionistBilling = () => {
       title="Front Desk Cashier & Invoicing Station" 
       subtitle="Issue patient invoices, process counter payments, and print official financial receipts"
     >
+      {/* Patient Specific Filter Banner */}
+      {patientIdParam && (
+        <div style={{
+          background: 'rgba(37, 99, 235, 0.08)',
+          border: '1px solid rgba(37, 99, 235, 0.25)',
+          borderRadius: '10px',
+          padding: '12px 18px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#1e40af', fontWeight: 600, fontSize: '13px' }}>
+            <FileText size={18} />
+            <span>
+              Showing billing records for Patient ID: <strong>#{patientIdParam}</strong> ({bills.length} invoices found)
+            </span>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            style={{ height: '32px', padding: '0 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => {
+              searchParams.delete('patient_id');
+              setSearchParams(searchParams);
+            }}
+          >
+            <X size={14} />
+            Show All Patient Bills
+          </button>
+        </div>
+      )}
+
       {/* =========================================================
           EXECUTIVE KPI SUMMARY METRIC CARDS
           ========================================================= */}

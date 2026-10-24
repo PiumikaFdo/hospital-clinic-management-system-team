@@ -480,7 +480,7 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
 // GET /api/receptionist/payments (utilizes idx_reception_payments_date_method)
 router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
   try {
-    const { payment_method, date, start_date, end_date, limit } = req.query;
+    const { payment_method, patient_id, date, start_date, end_date, limit } = req.query;
     let q = `
       SELECT p.*, b.total_amount, b.balance_amount, b.payment_status,
              CONCAT(pu.first_name,' ',pu.last_name) AS patient_name, pat.patient_code,
@@ -495,6 +495,7 @@ router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'
     `;
     const params = [];
     if (payment_method && payment_method !== 'ALL') { q += ' AND p.payment_method = ?'; params.push(payment_method); }
+    if (patient_id) { q += ' AND b.patient_id = ?'; params.push(patient_id); }
     if (date) { q += ' AND DATE(p.payment_date) = ?'; params.push(date); }
     if (start_date) { q += ' AND DATE(p.payment_date) >= ?'; params.push(start_date); }
     if (end_date) { q += ' AND DATE(p.payment_date) <= ?'; params.push(end_date); }
@@ -503,6 +504,22 @@ router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'
 
     const [rows] = await pool.query(q, params);
     res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// GET /api/receptionist/doctors/:id/schedule (Doctor weekly available working days)
+router.get('/doctors/:id/schedule', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [schedules] = await pool.query(`
+      SELECT schedule_id, day_of_week, start_time, end_time, is_available
+      FROM doctor_schedules
+      WHERE doctor_id = ? AND is_available = 1
+      ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')
+    `, [id]);
+    res.json({ success: true, data: schedules });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
