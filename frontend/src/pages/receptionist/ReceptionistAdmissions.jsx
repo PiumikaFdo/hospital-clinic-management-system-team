@@ -209,6 +209,13 @@ const ReceptionistAdmissions = () => {
     }
   }, [urlPatientId]);
 
+  // Refetch live ward beds whenever admit modal is opened
+  useEffect(() => {
+    if (showAdmitModal) {
+      fetchMasterData();
+    }
+  }, [showAdmitModal, fetchMasterData]);
+
   // When patient is selected in admission modal, check for recent doctor consultation & automatically pre-fill
   useEffect(() => {
     if (!form.patient_id) {
@@ -1357,42 +1364,7 @@ const ReceptionistAdmissions = () => {
                     </div>
                   )}
 
-                  {/* 2. AUTOMATIC CLINICAL CONSULTATION PRE-FILL BANNER (NO BUTTON NEEDED) */}
-                  {recentConsultation && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        padding: '10px 14px',
-                        background: '#f0fdf4',
-                        border: '1px solid #86efac',
-                        borderRadius: 8,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <CheckCircle2 size={18} color="#16a34a" style={{ flexShrink: 0 }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#15803d' }}>
-                          <Sparkles size={14} color="#16a34a" />
-                          {recentConsultation.doctor_name
-                            ? `Auto-Filled: Examining Doctor & Clinical Order (Dr. ${recentConsultation.doctor_name})`
-                            : `Auto-Filled: Clinical Baseline from Patient Profile`}
-                        </div>
-                        <div style={{ fontSize: 11.5, color: '#166534', marginTop: 2 }}>
-                          {recentConsultation.specialization && <span>{recentConsultation.specialization} · </span>}
-                          Indication / Reason: <em>"{recentConsultation.reason || 'Doctor ordered in-patient clinical admission'}"</em>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {loadingConsultation && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <RefreshCw size={12} className="spin" />
-                      Checking doctor consultation & clinical records...
-                    </div>
-                  )}
+                  {/* (Autofill occurs silently into doctor_id and reason without visible banner) */}
                 </div>
 
                 {/* 3. ADMITTING DOCTOR (WHO ORDERED ADMISSION) */}

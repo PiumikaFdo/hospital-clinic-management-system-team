@@ -808,12 +808,28 @@ router.get('/wards', authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
-        w.ward_id, w.ward_name, w.ward_type, w.total_beds, w.available_beds,
+        w.ward_id, w.ward_name, w.ward_type,
+        COALESCE(b_total.cnt, w.total_beds, 0) AS total_beds,
+        COALESCE(b_avail.cnt, w.available_beds, 0) AS available_beds,
         w.floor_number, w.daily_rate,
-        (w.total_beds - w.available_beds) AS occupied_beds,
-        ROUND(((w.total_beds - w.available_beds) / w.total_beds) * 100, 1) AS occupancy_rate,
+        (COALESCE(b_total.cnt, w.total_beds, 0) - COALESCE(b_avail.cnt, w.available_beds, 0)) AS occupied_beds,
+        IF(COALESCE(b_total.cnt, w.total_beds, 0) > 0,
+          ROUND(((COALESCE(b_total.cnt, w.total_beds, 0) - COALESCE(b_avail.cnt, w.available_beds, 0)) / COALESCE(b_total.cnt, w.total_beds, 0)) * 100, 1),
+          0
+        ) AS occupancy_rate,
         CONCAT(nu.first_name, ' ', nu.last_name) AS nurse_in_charge_name
       FROM wards w
+      LEFT JOIN (
+        SELECT ward_id, COUNT(*) AS cnt
+        FROM beds
+        GROUP BY ward_id
+      ) b_total ON w.ward_id = b_total.ward_id
+      LEFT JOIN (
+        SELECT ward_id, COUNT(*) AS cnt
+        FROM beds
+        WHERE status = 'Available'
+        GROUP BY ward_id
+      ) b_avail ON w.ward_id = b_avail.ward_id
       LEFT JOIN staff ns ON w.nurse_in_charge = ns.staff_id
       LEFT JOIN users nu ON ns.user_id = nu.user_id
       ORDER BY w.ward_name

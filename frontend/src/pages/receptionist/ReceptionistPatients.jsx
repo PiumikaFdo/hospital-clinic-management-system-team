@@ -76,6 +76,22 @@ const ReceptionistPatients = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showApptModal, setShowApptModal] = useState(false);
+
+  // Appointment Booking for Existing Patient
+  const [apptPatient, setApptPatient] = useState(null);
+  const [apptForm, setApptForm] = useState({
+    doctor_id: '',
+    appointment_date: new Date().toISOString().split('T')[0],
+    appointment_time: '',
+    appointment_type: 'In-Person',
+    reason: ''
+  });
+  const [apptDoctorSchedules, setApptDoctorSchedules] = useState([]);
+  const [apptSlots, setApptSlots] = useState([]);
+  const [loadingApptSlots, setLoadingApptSlots] = useState(false);
+  const [apptScheduleMessage, setApptScheduleMessage] = useState('');
+  const [bookingAppt, setBookingAppt] = useState(false);
 
   // Active records for modals
   const [form, setForm] = useState(INITIAL_FORM);
@@ -98,6 +114,7 @@ const ReceptionistPatients = () => {
         setShowEditModal(false);
         setShowViewModal(false);
         setShowDeleteModal(false);
+        setShowApptModal(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -391,6 +408,123 @@ const ReceptionistPatients = () => {
     const m = now.getMonth() - birth.getMonth();
     if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
     return age >= 0 ? age : null;
+  };
+
+  // Open Appointment Booking Modal for Existing Patient
+  const openApptModal = (patient) => {
+    setApptPatient(patient);
+    const today = new Date().toISOString().split('T')[0];
+    setApptForm({
+      doctor_id: '',
+      appointment_date: today,
+      appointment_time: '',
+      appointment_type: 'In-Person',
+      reason: ''
+    });
+    setApptDoctorSchedules([]);
+    setApptSlots([]);
+    setApptScheduleMessage('');
+    setShowApptModal(true);
+  };
+
+  // When doctor changes in appointment modal
+  const handleApptDoctorChange = async (doctorId) => {
+    setApptForm(f => ({ ...f, doctor_id: doctorId, appointment_time: '' }));
+    setApptSlots([]);
+    setApptScheduleMessage('');
+    if (!doctorId) {
+      setApptDoctorSchedules([]);
+      return;
+    }
+
+    try {
+      const res = await API.get(`/receptionist/doctors/${doctorId}/schedule`);
+      const scheds = res.data.data || [];
+      setApptDoctorSchedules(scheds);
+
+      if (apptForm.appointment_date) {
+        fetchApptSlots(doctorId, apptForm.appointment_date, scheds);
+      }
+    } catch (err) {
+      console.error('Error fetching doctor schedule:', err);
+      setApptDoctorSchedules([]);
+    }
+  };
+
+  // When date changes in appointment modal
+  const handleApptDateChange = (date) => {
+    setApptForm(f => ({ ...f, appointment_date: date, appointment_time: '' }));
+    if (apptForm.doctor_id && date) {
+      fetchApptSlots(apptForm.doctor_id, date, apptDoctorSchedules);
+    }
+  };
+
+  // Fetch real-time available 30-min slots for doctor on date
+  const fetchApptSlots = async (doctorId, date, schedules = apptDoctorSchedules) => {
+    if (!doctorId || !date) return;
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const d = new Date(date);
+    const dayName = dayNames[d.getDay()];
+
+    if (schedules.length > 0 && !schedules.some(s => s.day_of_week === dayName && s.is_available)) {
+      const workingDays = schedules.map(s => s.day_of_week).join(', ');
+      setApptScheduleMessage(`Doctor is not scheduled on ${dayName}s. Scheduled working days: ${workingDays}.`);
+      setApptSlots([]);
+      return;
+    }
+
+    setLoadingApptSlots(true);
+    setApptScheduleMessage('');
+    try {
+      const res = await API.get(`/appointments/public/slots?doctor_id=${doctorId}&date=${date}`);
+      if (res.data.success) {
+        const slots = res.data.data || [];
+        setApptSlots(slots);
+        if (slots.length === 0) {
+          setApptScheduleMessage(res.data.message || 'No slots available for this date.');
+        } else {
+          const firstAvail = slots.find(s => s.available);
+          if (firstAvail) {
+            setApptForm(f => ({ ...f, appointment_time: firstAvail.time }));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching appointment slots:', err);
+      setApptSlots([]);
+    } finally {
+      setLoadingApptSlots(false);
+    }
+  };
+
+  // Submit appointment booking
+  const handleBookAppointment = async (e) => {
+    e.preventDefault();
+    if (!apptPatient || !apptForm.doctor_id || !apptForm.appointment_date || !apptForm.appointment_time) {
+      toast.error('Please select an examining doctor, consultation date, and available time slot.');
+      return;
+    }
+
+    setBookingAppt(true);
+    try {
+      const res = await API.post('/appointments', {
+        patient_id: apptPatient.patient_id,
+        doctor_id: apptForm.doctor_id,
+        appointment_date: apptForm.appointment_date,
+        appointment_time: apptForm.appointment_time,
+        appointment_type: apptForm.appointment_type,
+        reason: apptForm.reason.trim() || 'General Clinical Consultation'
+      });
+      toast.success(res.data.message || `Appointment booked successfully for ${apptPatient.first_name}!`);
+      setShowApptModal(false);
+      setApptPatient(null);
+    } catch (err) {
+      console.error('Error booking appointment:', err);
+      toast.error(err.response?.data?.message || 'Failed to book appointment');
+    } finally {
+      setBookingAppt(false);
+    }
   };
 
   return (
@@ -879,6 +1013,23 @@ const ReceptionistPatients = () => {
                           onClick={() => openEditModal(p)}
                         >
                           <Edit2 size={14} />
+                        </button>
+
+                        {/* Book Doctor Appointment for Existing Patient */}
+                        <button
+                          className="btn btn-sm"
+                          style={{
+                            padding: '4px 7px',
+                            borderRadius: '6px',
+                            background: 'rgba(147, 51, 234, 0.1)',
+                            color: '#9333ea',
+                            border: 'none',
+                            cursor: 'pointer'
+                          }}
+                          title={`Book Doctor Consultation for ${p.first_name}`}
+                          onClick={() => openApptModal(p)}
+                        >
+                          <Calendar size={14} />
                         </button>
 
                         {/* Quick Admit to Bed */}
@@ -2026,6 +2177,29 @@ const ReceptionistPatients = () => {
                   <Edit2 size={14} /> Edit Profile
                 </button>
 
+                {/* Book Appointment Button */}
+                <button
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setShowViewModal(false);
+                    openApptModal(selectedPatient);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(147, 51, 234, 0.12)',
+                    color: '#9333ea',
+                    border: '1px solid rgba(147, 51, 234, 0.25)',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Calendar size={14} /> Book Appointment
+                </button>
+
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
@@ -2243,6 +2417,316 @@ const ReceptionistPatients = () => {
                 {submitting ? 'Processing...' : 'Confirm Action'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 8. BOOK APPOINTMENT MODAL FOR EXISTING PATIENT           */}
+      {/* ======================================================== */}
+      {showApptModal && apptPatient && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
+          }}
+          onClick={e => e.target === e.currentTarget && setShowApptModal(false)}
+        >
+          <div className="modal" style={{ maxWidth: '640px', width: '95%', maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#faf5ff', borderTopLeftRadius: '14px', borderTopRightRadius: '14px', flexShrink: 0 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#7e22ce', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Calendar size={20} color="#7e22ce" />
+                  Book Doctor Consultation
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  Schedule consultation appointment for registered patient <strong>{apptPatient.first_name} {apptPatient.last_name}</strong>
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                style={{ background: '#f3e8ff', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}
+                onClick={() => setShowApptModal(false)}
+                title="Close (Esc)"
+              >
+                <X size={18} color="#7e22ce" />
+              </button>
+            </div>
+
+            <form onSubmit={handleBookAppointment} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden', margin: 0 }}>
+              <div className="modal-body" style={{ padding: '22px 24px', overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 170px)' }}>
+                {/* Patient Quick Summary Box */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  marginBottom: '18px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                      {apptPatient.first_name} {apptPatient.last_name}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                      Code: <strong style={{ color: '#2563eb', fontFamily: 'monospace' }}>{apptPatient.patient_code}</strong> • Phone: {apptPatient.phone || 'N/A'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span className="badge" style={{ background: '#eff6ff', color: '#1d4ed8', fontWeight: 700, fontSize: '11.5px' }}>
+                      {apptPatient.gender}
+                    </span>
+                    <span className="badge" style={{ background: '#fef2f2', color: '#dc2626', fontWeight: 700, fontSize: '11.5px' }}>
+                      {apptPatient.blood_group || 'N/A'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 1. Doctor Selection */}
+                <div className="form-group" style={{ marginBottom: '14px' }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>
+                    Select Examining Doctor *
+                  </label>
+                  <select
+                    className="form-control"
+                    value={apptForm.doctor_id}
+                    onChange={e => handleApptDoctorChange(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Choose Doctor --</option>
+                    {doctors.map(d => (
+                      <option key={d.staff_id} value={d.staff_id}>
+                        Dr. {d.doctor_name} — {d.specialization || d.dept_name} ({d.dept_name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Doctor Duty Days tags */}
+                {apptDoctorSchedules.length > 0 && (
+                  <div style={{
+                    marginBottom: '16px',
+                    padding: '10px 14px',
+                    background: '#fdf4ff',
+                    border: '1px solid #f0abfc',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  }}>
+                    <strong style={{ color: '#86198f', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                      <Clock size={13} /> Doctor Duty Days & Shift Schedule:
+                    </strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                      {apptDoctorSchedules.map((s, idx) => (
+                        <span key={idx} style={{
+                          background: '#ffffff',
+                          border: '1px solid #e879f9',
+                          borderRadius: '6px',
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: '#701a75'
+                        }}>
+                          {s.day_of_week}: {s.start_time?.slice(0, 5)} - {s.end_time?.slice(0, 5)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Date & Appointment Type */}
+                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>
+                      Consultation Date *
+                    </label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={apptForm.appointment_date}
+                      min={new Date().toISOString().split('T')[0]}
+                      onChange={e => handleApptDateChange(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>
+                      Consultation Type
+                    </label>
+                    <select
+                      className="form-control"
+                      value={apptForm.appointment_type}
+                      onChange={e => setApptForm(f => ({ ...f, appointment_type: e.target.value }))}
+                    >
+                      <option value="In-Person">In-Person Consultation</option>
+                      <option value="Follow-up">Follow-up Review</option>
+                      <option value="Emergency">Emergency Consultation</option>
+                      <option value="Lab Review">Lab / Diagnostic Review</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 3. Time Slots */}
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label" style={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Available Consultation Time Slot *</span>
+                    {loadingApptSlots && <span style={{ color: '#2563eb', fontSize: '11px' }}>Checking real-time slots...</span>}
+                  </label>
+
+                  {apptScheduleMessage && (
+                    <div style={{
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      background: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      color: '#92400e',
+                      fontSize: '12px',
+                      marginBottom: '10px'
+                    }}>
+                      ℹ️ {apptScheduleMessage}
+                    </div>
+                  )}
+
+                  {apptSlots.length > 0 ? (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(95px, 1fr))',
+                      gap: '8px',
+                      maxHeight: '160px',
+                      overflowY: 'auto',
+                      padding: '8px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      background: '#f8fafc'
+                    }}>
+                      {apptSlots.map(slot => (
+                        <button
+                          key={slot.time}
+                          type="button"
+                          disabled={!slot.available}
+                          onClick={() => setApptForm(f => ({ ...f, appointment_time: slot.time }))}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            border: '1px solid',
+                            cursor: slot.available ? 'pointer' : 'not-allowed',
+                            background: apptForm.appointment_time === slot.time
+                              ? '#7e22ce'
+                              : slot.available ? '#ffffff' : '#f1f5f9',
+                            color: apptForm.appointment_time === slot.time
+                              ? '#ffffff'
+                              : slot.available ? '#334155' : '#94a3b8',
+                            borderColor: apptForm.appointment_time === slot.time
+                              ? '#7e22ce'
+                              : slot.available ? '#cbd5e1' : '#e2e8f0',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {slot.time.slice(0, 5)}
+                          <div style={{ fontSize: '9px', opacity: 0.85 }}>
+                            {slot.available ? 'Free' : 'Booked'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    !loadingApptSlots && (
+                      <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', padding: '6px 0' }}>
+                        {apptForm.doctor_id ? 'Select an appointment date matching doctor duty days.' : 'Select an examining doctor first to load time slots.'}
+                      </div>
+                    )
+                  )}
+                </div>
+
+                {/* 4. Reason / Chief Complaint */}
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>
+                    Clinical Reason / Symptoms / Chief Complaint
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    placeholder="Enter reason for visit, symptom notes, or clinical referral details..."
+                    value={apptForm.reason}
+                    onChange={e => setApptForm(f => ({ ...f, reason: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="modal-footer" style={{
+                borderTop: '1px solid #e2e8f0',
+                padding: '14px 24px',
+                background: '#f8fafc',
+                borderBottomLeftRadius: '14px',
+                borderBottomRightRadius: '14px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '12px',
+                flexShrink: 0
+              }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    color: '#475569'
+                  }}
+                  onClick={() => setShowApptModal(false)}
+                  disabled={bookingAppt}
+                >
+                  <X size={15} />
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={bookingAppt || !apptForm.doctor_id || !apptForm.appointment_time}
+                  style={{
+                    padding: '8px 22px',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: '#7e22ce',
+                    borderColor: '#7e22ce',
+                    boxShadow: '0 2px 6px rgba(126,34,206,0.25)'
+                  }}
+                >
+                  <Calendar size={16} />
+                  {bookingAppt ? 'Booking...' : 'Confirm & Book Appointment'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
