@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
+import DoctorAdmissionOrderAlert from '../../components/DoctorAdmissionOrderAlert';
 
 const ReceptionistDashboard = () => {
   const navigate = useNavigate();
@@ -62,6 +63,8 @@ const ReceptionistDashboard = () => {
       title="Front Desk & Reception Station"
       subtitle="Central command for patient check-in, doctor appointments, cashier desk, and ward admissions"
     >
+      {/* Doctor Admission Order Floating Alert */}
+      <DoctorAdmissionOrderAlert />
       {loading ? (
         <div className="loading-page">
           <span className="spinner-large" />

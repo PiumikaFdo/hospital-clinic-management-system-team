@@ -768,6 +768,49 @@ router.get('/patients/:id/recent-consultation', authenticateToken, authorizeRole
   }
 });
 
+// GET /api/receptionist/pending-admission-orders
+// Returns all doctor-placed admission orders (appointments with [ADMISSION ORDER] reason)
+// where the patient does NOT currently have an active admission — so receptionist can act on them.
+router.get('/pending-admission-orders', authenticateToken, authorizeRoles('receptionist', 'admin'), async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        a.appointment_id,
+        a.appointment_date,
+        a.appointment_time,
+        a.reason,
+        a.appointment_type,
+        a.status,
+        a.doctor_id,
+        a.patient_id,
+        CONCAT(du.first_name, ' ', du.last_name) AS doctor_name,
+        ds.specialization,
+        CONCAT(pu.first_name, ' ', pu.last_name) AS patient_name,
+        p.patient_code,
+        p.blood_group,
+        pu.phone AS patient_phone,
+        pu.gender
+      FROM appointments a
+      JOIN staff ds ON a.doctor_id = ds.staff_id
+      JOIN users du ON ds.user_id = du.user_id
+      JOIN patients p ON a.patient_id = p.patient_id
+      JOIN users pu ON p.user_id = pu.user_id
+      WHERE a.reason LIKE '%[ADMISSION ORDER%'
+        AND NOT EXISTS (
+          SELECT 1 FROM admissions ad
+          WHERE ad.patient_id = a.patient_id
+            AND ad.status = 'Active'
+        )
+      ORDER BY a.appointment_date DESC, a.appointment_time DESC
+    `);
+
+    res.json({ success: true, data: rows, count: rows.length });
+  } catch (err) {
+    console.error('Error fetching pending admission orders:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // POST /api/receptionist/admissions  (Admit patient from receptionist via sp_admit_patient)
 router.post('/admissions', authenticateToken, authorizeRoles('receptionist','nurse'), async (req, res) => {
   try {
