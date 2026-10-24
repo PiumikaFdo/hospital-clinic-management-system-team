@@ -4,5 +4,6 @@
 !.env.example
 **/dist/
 **/build/
+**/.vite/
 coverage/
 npm-debug.log*

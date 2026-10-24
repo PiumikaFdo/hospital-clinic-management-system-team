@@ -97,6 +97,73 @@ router.post('/public/book', async (req, res) => {
   }
 });
 
+// POST /api/appointments  (book appointment for existing registered patient)
+router.post('/', authenticateToken, authorizeRoles('receptionist', 'admin', 'doctor', 'nurse', 'patient'), async (req, res) => {
+  try {
+    const {
+      patient_id,
+      doctor_id,
+      appointment_date,
+      appointment_time,
+      reason,
+      appointment_type = 'In-Person',
+      status = 'Confirmed'
+    } = req.body;
+
+    if (!patient_id || !doctor_id || !appointment_date || !appointment_time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient, Doctor, Appointment Date, and Appointment Time are required'
+      });
+    }
+
+    // Verify patient exists
+    const [patientRows] = await pool.query(
+      `SELECT p.patient_id, CONCAT(u.first_name, ' ', u.last_name) AS patient_name
+       FROM patients p JOIN users u ON p.user_id = u.user_id
+       WHERE p.patient_id = ?`,
+      [patient_id]
+    );
+    if (!patientRows.length) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    // Insert appointment
+    const [result] = await pool.query(
+      `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        patient_id,
+        doctor_id,
+        appointment_date,
+        appointment_time,
+        reason || 'General Clinical Consultation',
+        status,
+        appointment_type
+      ]
+    );
+
+    // Audit log link if possible
+    if (req.user && req.user.user_id) {
+      await pool.query(
+        `UPDATE audit_logs SET user_id = ?, ip_address = ?
+         WHERE table_name = 'appointments' AND record_id = ? AND user_id IS NULL
+         ORDER BY log_id DESC LIMIT 1`,
+        [req.user.user_id, req.ip || null, result.insertId]
+      ).catch(() => {});
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Appointment successfully booked for ${patientRows[0].patient_name}!`,
+      data: { appointment_id: result.insertId }
+    });
+  } catch (err) {
+    console.error('Error booking appointment for existing patient:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Could not book appointment' });
+  }
+});
+
 // GET /api/appointments  (authenticated - role based)
 router.get('/', authenticateToken, async (req, res) => {
   try {
