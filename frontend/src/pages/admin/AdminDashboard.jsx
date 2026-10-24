@@ -124,18 +124,31 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       API.get('/admin/dashboard'),
       API.get('/admin/revenue'),
       API.get('/admin/appointment-analytics')
-    ]).then(([d, r, an]) => {
-      setStats(d.data.data?.stats || {});
-      setDept(d.data.data?.deptStats || []);
-      setAppts(d.data.data?.recentAppointments || []);
-      setRevenue(r.data.data?.monthlyBreakdown || []);
-      setAppointmentAnalytics(an.data?.data || { weekdayStats: [], doctorSummary: [], overallSummary: {} });
-    }).catch(err => {
-      console.error('Failed to load admin stats:', err);
+    ]).then(([dashboardResult, revenueResult, analyticsResult]) => {
+      if (dashboardResult.status === 'fulfilled') {
+        const data = dashboardResult.value.data.data;
+        setStats(data?.stats || {});
+        setDept(data?.deptStats || []);
+        setAppts(data?.recentAppointments || []);
+      } else {
+        console.error('Failed to load admin stats:', dashboardResult.reason);
+      }
+
+      if (revenueResult.status === 'fulfilled') {
+        setRevenue(revenueResult.value.data.data?.monthlyBreakdown || []);
+      } else {
+        console.error('Failed to load admin revenue:', revenueResult.reason);
+      }
+
+      if (analyticsResult.status === 'fulfilled') {
+        setAppointmentAnalytics(analyticsResult.value.data?.data || { weekdayStats: [], doctorSummary: [], overallSummary: {} });
+      } else {
+        console.error('Failed to load admin appointment analytics:', analyticsResult.reason);
+      }
     }).finally(() => setLoading(false));
   }, []);
 
