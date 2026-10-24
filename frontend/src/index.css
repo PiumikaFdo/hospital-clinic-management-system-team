@@ -2329,12 +2329,13 @@ h1, h2, h3, h4, h5, h6 {
   backdrop-filter: blur(6px) !important;
   -webkit-backdrop-filter: blur(6px) !important;
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   justify-content: center !important;
   z-index: 99999 !important;
-  padding: 16px !important;
+  padding: 24px 16px !important;
   box-sizing: border-box !important;
   overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
   animation: modalOverlayFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
@@ -2366,13 +2367,23 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
   width: 100% !important;
   max-width: 640px;
-  max-height: calc(100vh - 40px) !important;
+  max-height: calc(100vh - 48px) !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
   animation: modalDialogPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
   margin: auto !important;
   box-sizing: border-box !important;
+}
+
+.modal > form,
+.modal form {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
 }
 
 .modal-header {
@@ -2421,8 +2432,29 @@ h1, h2, h3, h4, h5, h6 {
   padding: 22px 24px !important;
   overflow-y: auto !important;
   flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: calc(100vh - 170px) !important;
   background: #ffffff !important;
-  -webkit-overflow-scrolling: touch;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #cbd5e1 #f8fafc !important;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: #f8fafc !important;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 4px !important;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
 }
 
 .modal-footer {

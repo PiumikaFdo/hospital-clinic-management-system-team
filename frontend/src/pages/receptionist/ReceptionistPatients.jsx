@@ -986,19 +986,20 @@ const ReceptionistPatients = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowRegisterModal(false)}
         >
-          <div className="modal" style={{ maxWidth: '840px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
+          <div className="modal" style={{ maxWidth: '860px', width: '95%', maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
             {/* Modal Header */}
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px', flexShrink: 0 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <UserPlus size={20} color="#2563eb" />
@@ -1019,8 +1020,8 @@ const ReceptionistPatients = () => {
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleRegister}>
-              <div className="modal-body" style={{ padding: '22px 24px' }}>
+            <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden', margin: 0 }}>
+              <div className="modal-body" style={{ padding: '22px 24px', overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 170px)' }}>
                 {/* SECTION 1: PERSONAL DEMOGRAPHICS */}
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{
@@ -1408,7 +1409,8 @@ const ReceptionistPatients = () => {
                 display: 'flex',
                 justifyContent: 'flex-end',
                 alignItems: 'center',
-                gap: '12px'
+                gap: '12px',
+                flexShrink: 0
               }}>
                 <button
                   type="button"
@@ -1470,18 +1472,19 @@ const ReceptionistPatients = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowEditModal(false)}
         >
-          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
+          <div className="modal" style={{ maxWidth: '860px', width: '95%', maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px', flexShrink: 0 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Edit2 size={18} color="#2563eb" />
@@ -1501,8 +1504,8 @@ const ReceptionistPatients = () => {
               </button>
             </div>
 
-            <form onSubmit={handleUpdate}>
-              <div className="modal-body" style={{ padding: '22px 24px' }}>
+            <form onSubmit={handleUpdate} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden', margin: 0 }}>
+              <div className="modal-body" style={{ padding: '22px 24px', overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 170px)' }}>
                 {/* Demographics */}
                 <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '18px' }}>
                   <div className="form-group">
@@ -1680,7 +1683,8 @@ const ReceptionistPatients = () => {
                 display: 'flex',
                 justifyContent: 'flex-end',
                 alignItems: 'center',
-                gap: '12px'
+                gap: '12px',
+                flexShrink: 0
               }}>
                 <button
                   type="button"
@@ -1742,18 +1746,19 @@ const ReceptionistPatients = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowViewModal(false)}
         >
-          <div className="modal" style={{ maxWidth: '840px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
+          <div className="modal" style={{ maxWidth: '860px', width: '95%', maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px', flexShrink: 0 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <FileText size={20} color="#2563eb" />
@@ -1773,7 +1778,7 @@ const ReceptionistPatients = () => {
               </button>
             </div>
 
-            <div className="modal-body" style={{ padding: '22px 24px' }}>
+            <div className="modal-body" style={{ padding: '22px 24px', overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 170px)' }}>
               {dossierLoading ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
                   <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px' }} />
@@ -2005,7 +2010,8 @@ const ReceptionistPatients = () => {
               borderBottomRightRadius: '14px',
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              flexShrink: 0
             }}>
               <div style={{ display: 'flex', gap: '10px' }}>
                 {/* Edit Button: Closes View Modal and Opens Edit Modal */}
@@ -2079,17 +2085,18 @@ const ReceptionistPatients = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowDeleteModal(false)}
         >
-          <div className="modal" style={{ maxWidth: '560px', width: '95%', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
+          <div className="modal" style={{ maxWidth: '560px', width: '95%', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
             <div className="modal-header" style={{ borderBottom: '1px solid #fee2e2', padding: '18px 24px', background: '#fff5f5', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} />

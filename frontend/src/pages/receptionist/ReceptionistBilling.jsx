@@ -663,17 +663,18 @@ const ReceptionistBilling = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowBillModal(false)}
         >
-          <div className="modal" style={{ maxWidth: 540, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
+          <div className="modal" style={{ maxWidth: 540, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
             <div className="modal-header">
               <h3>💰 Generate Patient Bill</h3>
               <button className="modal-close" onClick={() => setShowBillModal(false)}>✕</button>
@@ -805,17 +806,18 @@ const ReceptionistBilling = () => {
             height: '100vh',
             zIndex: 99999,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             background: 'rgba(15, 23, 42, 0.72)',
             backdropFilter: 'blur(6px)',
             WebkitBackdropFilter: 'blur(6px)',
-            padding: '16px',
-            boxSizing: 'border-box'
+            padding: '24px 16px',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
           }}
           onClick={e => e.target === e.currentTarget && setShowPayModal(null)}
         >
-          <div className="modal" style={{ maxWidth: 440, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
+          <div className="modal" style={{ maxWidth: 440, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden', margin: 'auto' }}>
             <div className="modal-header">
               <h3>💳 Counter Payment — Bill {showPayModal.bill_id}</h3>
               <button className="modal-close" onClick={() => setShowPayModal(null)}>✕</button>
