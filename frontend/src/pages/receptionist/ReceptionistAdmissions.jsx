@@ -30,6 +30,7 @@ import {
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 import Barcode from '../../components/Barcode';
+import DoctorAdmissionOrderAlert from '../../components/DoctorAdmissionOrderAlert';
 
 const ReceptionistAdmissions = () => {
   const navigate = useNavigate();
@@ -466,6 +467,8 @@ const ReceptionistAdmissions = () => {
       title="In-Patient Admissions & Ward Census"
       subtitle="Front-desk admission intake, doctor-assigned ward allocations, live bed matrix, and accrued room cost estimation"
     >
+      {/* Doctor Admission Order Floating Alert */}
+      <DoctorAdmissionOrderAlert />
       {/* =========================================================
           TOP KPI METRIC CARDS
           ========================================================= */}
