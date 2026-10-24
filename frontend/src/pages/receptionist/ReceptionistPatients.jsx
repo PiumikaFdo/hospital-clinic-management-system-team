@@ -994,11 +994,11 @@ const ReceptionistPatients = () => {
 
                     {/* Actions */}
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <div className="table-action-group">
                         {/* View Dossier */}
                         <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ padding: '4px 7px', borderRadius: '6px' }}
+                          type="button"
+                          className="table-action-btn btn-view"
                           title="View Full Intake Dossier"
                           onClick={() => openViewDossier(p)}
                         >
@@ -1007,8 +1007,8 @@ const ReceptionistPatients = () => {
 
                         {/* Edit Patient */}
                         <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ padding: '4px 7px', borderRadius: '6px' }}
+                          type="button"
+                          className="table-action-btn btn-edit"
                           title="Edit Patient Information"
                           onClick={() => openEditModal(p)}
                         >
@@ -1017,15 +1017,8 @@ const ReceptionistPatients = () => {
 
                         {/* Book Doctor Appointment for Existing Patient */}
                         <button
-                          className="btn btn-sm"
-                          style={{
-                            padding: '4px 7px',
-                            borderRadius: '6px',
-                            background: 'rgba(147, 51, 234, 0.1)',
-                            color: '#9333ea',
-                            border: 'none',
-                            cursor: 'pointer'
-                          }}
+                          type="button"
+                          className="table-action-btn btn-appt"
                           title={`Book Doctor Consultation for ${p.first_name}`}
                           onClick={() => openApptModal(p)}
                         >
@@ -1034,32 +1027,23 @@ const ReceptionistPatients = () => {
 
                         {/* Quick Admit to Bed */}
                         <button
-                          className="btn btn-sm"
+                          type="button"
+                          className="table-action-btn btn-admit"
+                          disabled={isAdmitted}
                           style={{
-                            padding: '4px 7px',
-                            borderRadius: '6px',
-                            background: isAdmitted ? '#f1f5f9' : 'rgba(37,99,235,0.1)',
-                            color: isAdmitted ? '#94a3b8' : '#2563eb',
-                            border: 'none',
+                            opacity: isAdmitted ? 0.45 : 1,
                             cursor: isAdmitted ? 'not-allowed' : 'pointer'
                           }}
-                          disabled={isAdmitted}
                           title={isAdmitted ? 'Already admitted' : 'Admit Patient to Ward Bed'}
-                          onClick={() => navigate(`/receptionist/admissions?patient_id=${p.patient_id}`)}
+                          onClick={() => !isAdmitted && navigate(`/receptionist/admissions?patient_id=${p.patient_id}`)}
                         >
                           <Bed size={14} />
                         </button>
 
                         {/* Filtered Billing: Shows ONLY this patient's billing records */}
                         <button
-                          className="btn btn-sm"
-                          style={{
-                            padding: '4px 7px',
-                            borderRadius: '6px',
-                            background: 'rgba(16, 185, 129, 0.1)',
-                            color: '#10b981',
-                            border: 'none'
-                          }}
+                          type="button"
+                          className="table-action-btn btn-bill"
                           title={`View Only ${p.first_name}'s Billing Records`}
                           onClick={() => navigate(`/receptionist/billing?patient_id=${p.patient_id}`)}
                         >
@@ -1068,14 +1052,8 @@ const ReceptionistPatients = () => {
 
                         {/* Safe Delete / Deactivate */}
                         <button
-                          className="btn btn-sm"
-                          style={{
-                            padding: '4px 7px',
-                            borderRadius: '6px',
-                            background: '#fff1f2',
-                            color: '#e11d48',
-                            border: 'none'
-                          }}
+                          type="button"
+                          className="table-action-btn btn-delete"
                           title="Delete or Deactivate Profile"
                           onClick={() => openDeleteModal(p)}
                         >

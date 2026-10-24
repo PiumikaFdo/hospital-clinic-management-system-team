@@ -10,11 +10,42 @@ router.get('/dashboard', authenticateToken, authorizeRoles('receptionist'), asyn
     const [[{ pending_bills }]] = await pool.query("SELECT COUNT(*) AS pending_bills FROM bills WHERE payment_status='Pending'");
     const [[{ today_payments }]] = await pool.query('SELECT COALESCE(SUM(amount),0) AS today_payments FROM payments WHERE DATE(payment_date)=CURDATE()');
     const [[{ active_admissions }]] = await pool.query("SELECT COUNT(*) AS active_admissions FROM admissions WHERE status='Active'");
-    const [recent_patients] = await pool.query('SELECT * FROM vw_registered_patients ORDER BY registered_at DESC LIMIT 5');
-    const [pending_bills_list] = await pool.query('SELECT * FROM vw_patient_bills WHERE payment_status=\'Pending\' ORDER BY bill_date DESC LIMIT 5');
+    const [[{ today_appts }]] = await pool.query("SELECT COUNT(*) AS today_appts FROM appointments WHERE appointment_date=CURDATE()");
+    const [[{ today_confirmed_appts }]] = await pool.query("SELECT COUNT(*) AS today_confirmed_appts FROM appointments WHERE appointment_date=CURDATE() AND status='Confirmed'");
+    const [[{ total_beds }]] = await pool.query("SELECT COUNT(*) AS total_beds FROM beds");
+    const [[{ available_beds }]] = await pool.query("SELECT COUNT(*) AS available_beds FROM beds WHERE status='Available'");
+    const [recent_patients] = await pool.query('SELECT * FROM vw_registered_patients ORDER BY registered_at DESC LIMIT 6');
+    const [pending_bills_list] = await pool.query('SELECT * FROM vw_patient_bills WHERE payment_status=\'Pending\' ORDER BY bill_date DESC LIMIT 6');
+    const [today_appts_list] = await pool.query(`
+      SELECT a.appointment_id, a.appointment_time, a.status, a.appointment_type, a.reason,
+             COALESCE(CONCAT(pu.first_name, ' ', pu.last_name), a.guest_name) AS patient_name,
+             p.patient_code,
+             CONCAT(du.first_name, ' ', du.last_name) AS doctor_name,
+             ds.specialization
+      FROM appointments a
+      LEFT JOIN patients p ON a.patient_id = p.patient_id
+      LEFT JOIN users pu ON p.user_id = pu.user_id
+      JOIN staff ds ON a.doctor_id = ds.staff_id
+      JOIN users du ON ds.user_id = du.user_id
+      WHERE a.appointment_date = CURDATE()
+      ORDER BY a.appointment_time ASC LIMIT 6
+    `);
+
     res.json({
       success: true,
-      data: { today_registrations: today_reg, pending_bills, today_total_payments: today_payments, active_admissions, recent_patients, pending_bills_list }
+      data: {
+        today_registrations: today_reg,
+        pending_bills,
+        today_total_payments: today_payments,
+        active_admissions,
+        today_appointments: today_appts,
+        today_confirmed_appointments: today_confirmed_appts,
+        total_beds,
+        available_beds,
+        recent_patients,
+        pending_bills_list,
+        today_appointments_list: today_appts_list
+      }
     });
   } catch (err) {
     console.error(err);

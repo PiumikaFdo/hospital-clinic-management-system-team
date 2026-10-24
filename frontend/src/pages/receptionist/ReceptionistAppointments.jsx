@@ -1105,26 +1105,24 @@ const ReceptionistAppointments = () => {
 
                       {/* 7. Row Actions */}
                       <td style={{ padding: '14px', verticalAlign: 'middle', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                        <div className="table-action-group">
                           <button
                             type="button"
-                            className="btn btn-outline"
+                            className="table-action-btn btn-view"
                             title="View Full Appointment Dossier"
                             onClick={() => {
                               setSelectedAppt(a);
                               setShowViewModal(true);
                             }}
-                            style={{ padding: '6px 8px', borderRadius: '6px' }}
                           >
                             <Eye size={14} />
                           </button>
 
                           <button
                             type="button"
-                            className="btn btn-outline"
+                            className="table-action-btn btn-edit"
                             title="Reschedule / Edit Appointment"
                             onClick={() => openEditModal(a)}
-                            style={{ padding: '6px 8px', borderRadius: '6px', color: '#7e22ce' }}
                           >
                             <Edit2 size={14} />
                           </button>
@@ -1132,10 +1130,9 @@ const ReceptionistAppointments = () => {
                           {isUnbilled && (
                             <button
                               type="button"
-                              className="btn btn-outline"
+                              className="table-action-btn btn-bill"
                               title="Generate Consultation Invoice"
                               onClick={() => openBillModal(a)}
-                              style={{ padding: '6px 8px', borderRadius: '6px', color: '#0284c7' }}
                             >
                               <CreditCard size={14} />
                             </button>
@@ -1143,10 +1140,9 @@ const ReceptionistAppointments = () => {
 
                           <button
                             type="button"
-                            className="btn btn-outline"
+                            className="table-action-btn btn-delete"
                             title="Cancel / Delete Appointment"
                             onClick={() => openCancelModal(a)}
-                            style={{ padding: '6px 8px', borderRadius: '6px', color: '#ef4444' }}
                           >
                             <Trash2 size={14} />
                           </button>

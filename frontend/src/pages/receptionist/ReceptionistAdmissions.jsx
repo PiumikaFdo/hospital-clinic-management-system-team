@@ -495,44 +495,33 @@ const ReceptionistAdmissions = () => {
           }}
         >
           {/* PRIMARY VIEW SWITCHER */}
-          <div
-            style={{
-              display: 'inline-flex',
-              background: '#f1f5f9',
-              padding: 4,
-              borderRadius: 10,
-              gap: 4,
-            }}
-          >
+          <div className="receptionist-nav-tabs">
             <button
               type="button"
-              className={`btn btn-sm ${activeView === 'register' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontWeight: 600, padding: '8px 16px', borderRadius: 8, fontSize: 13 }}
+              className={`receptionist-nav-tab ${activeView === 'register' ? 'active' : ''}`}
               onClick={() => setActiveView('register')}
             >
-              <ClipboardList size={15} style={{ marginRight: 6 }} />
+              <ClipboardList size={15} />
               In-Patient Register
             </button>
             <button
               type="button"
-              className={`btn btn-sm ${activeView === 'bedmap' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontWeight: 600, padding: '8px 16px', borderRadius: 8, fontSize: 13 }}
+              className={`receptionist-nav-tab ${activeView === 'bedmap' ? 'active' : ''}`}
               onClick={() => {
                 setActiveView('bedmap');
                 fetchBedMatrix();
               }}
             >
-              <LayoutGrid size={15} style={{ marginRight: 6 }} />
+              <LayoutGrid size={15} />
               Interactive Bed Map
             </button>
             <button
               type="button"
-              className={`btn btn-sm ${activeView === 'census' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontWeight: 600, padding: '8px 16px', borderRadius: 8, fontSize: 13 }}
+              className={`receptionist-nav-tab ${activeView === 'census' ? 'active' : ''}`}
               onClick={() => setActiveView('census')}
             >
-              <FileText size={15} style={{ marginRight: 6 }} />
-              Daily Ward Census Roster
+              <FileText size={15} />
+              Daily Ward Census
             </button>
           </div>
 
