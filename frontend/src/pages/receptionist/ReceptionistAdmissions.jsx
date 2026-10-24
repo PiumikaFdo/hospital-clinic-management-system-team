@@ -1222,9 +1222,28 @@ const ReceptionistAdmissions = () => {
       {showAdmitModal && (
         <div
           className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
           onClick={(e) => e.target === e.currentTarget && setShowAdmitModal(false)}
         >
-          <div className="modal" style={{ maxWidth: 580, borderRadius: 14 }}>
+          <div className="modal" style={{ maxWidth: 580, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             <div
               className="modal-header"
               style={{
@@ -1547,9 +1566,28 @@ const ReceptionistAdmissions = () => {
       {dischargeModalAdmission && (
         <div
           className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
           onClick={(e) => e.target === e.currentTarget && !discharging && setDischargeModalAdmission(null)}
         >
-          <div className="modal" style={{ maxWidth: 560, borderRadius: 14 }}>
+          <div className="modal" style={{ maxWidth: 560, width: '95%', borderRadius: 14, boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <LogOut size={20} className="text-warning" />

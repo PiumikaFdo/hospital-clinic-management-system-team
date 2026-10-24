@@ -973,8 +973,30 @@ const ReceptionistPatients = () => {
       {/* 4. MULTI-SECTION REGISTER PATIENT POPUP MODAL            */}
       {/* ======================================================== */}
       {showRegisterModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowRegisterModal(false)}>
-          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+          onClick={e => e.target === e.currentTarget && setShowRegisterModal(false)}
+        >
+          <div className="modal" style={{ maxWidth: '840px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             {/* Modal Header */}
             <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
@@ -1435,8 +1457,30 @@ const ReceptionistPatients = () => {
       {/* 5. EDIT PATIENT POPUP MODAL                              */}
       {/* ======================================================== */}
       {showEditModal && selectedPatient && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowEditModal(false)}>
-          <div className="modal" style={{ maxWidth: '800px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+          onClick={e => e.target === e.currentTarget && setShowEditModal(false)}
+        >
+          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1685,8 +1729,30 @@ const ReceptionistPatients = () => {
       {/* 6. VIEW PATIENT INTAKE DOSSIER POPUP MODAL               */}
       {/* ======================================================== */}
       {showViewModal && selectedPatient && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowViewModal(false)}>
-          <div className="modal" style={{ maxWidth: '820px', width: '95%', maxHeight: '92vh', overflowY: 'auto', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+          onClick={e => e.target === e.currentTarget && setShowViewModal(false)}
+        >
+          <div className="modal" style={{ maxWidth: '840px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', padding: '18px 24px', background: '#f8fafc', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2000,8 +2066,30 @@ const ReceptionistPatients = () => {
       {/* 7. DELETE / DEACTIVATE EXPLANATION POPUP MODAL           */}
       {/* ======================================================== */}
       {showDeleteModal && selectedPatient && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowDeleteModal(false)}>
-          <div className="modal" style={{ maxWidth: '560px', width: '95%', borderRadius: '14px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+          onClick={e => e.target === e.currentTarget && setShowDeleteModal(false)}
+        >
+          <div className="modal" style={{ maxWidth: '560px', width: '95%', borderRadius: '14px', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)', background: '#ffffff', overflow: 'hidden' }}>
             <div className="modal-header" style={{ borderBottom: '1px solid #fee2e2', padding: '18px 24px', background: '#fff5f5', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
               <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={20} />
