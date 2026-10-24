@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   Bed,
@@ -33,6 +33,8 @@ import Barcode from '../../components/Barcode';
 
 const ReceptionistAdmissions = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlPatientId = searchParams.get('patient_id');
 
   // Primary Active Tab: 'register' (table), 'bedmap' (visual floor plan), 'census' (shift handover report)
   const [activeView, setActiveView] = useState('register');
@@ -199,7 +201,15 @@ const ReceptionistAdmissions = () => {
     }
   };
 
-  // When patient is selected in admission modal, check for recent doctor consultation
+  // Auto-open modal if patient_id is in URL query parameters
+  useEffect(() => {
+    if (urlPatientId) {
+      setForm((f) => ({ ...f, patient_id: String(urlPatientId) }));
+      setShowAdmitModal(true);
+    }
+  }, [urlPatientId]);
+
+  // When patient is selected in admission modal, check for recent doctor consultation & automatically pre-fill
   useEffect(() => {
     if (!form.patient_id) {
       setRecentConsultation(null);
@@ -210,7 +220,17 @@ const ReceptionistAdmissions = () => {
       try {
         setLoadingConsultation(true);
         const res = await API.get(`/receptionist/patients/${form.patient_id}/recent-consultation`);
-        setRecentConsultation(res.data.data || null);
+        const consultation = res.data.data;
+        setRecentConsultation(consultation || null);
+
+        if (consultation) {
+          // AUTOMATICALLY pre-fill without requiring the user to click any button!
+          setForm((f) => ({
+            ...f,
+            doctor_id: consultation.doctor_id ? String(consultation.doctor_id) : f.doctor_id,
+            reason: consultation.reason || f.reason || 'Doctor ordered in-patient clinical admission',
+          }));
+        }
       } catch (err) {
         console.error('Error checking recent consultation:', err);
         setRecentConsultation(null);
@@ -221,19 +241,6 @@ const ReceptionistAdmissions = () => {
 
     checkConsultation();
   }, [form.patient_id]);
-
-  // Auto-fill from Doctor Consultation
-  const handleAutoFillConsultation = () => {
-    if (!recentConsultation) return;
-
-    setForm((f) => ({
-      ...f,
-      doctor_id: String(recentConsultation.doctor_id || f.doctor_id),
-      reason: recentConsultation.reason || f.reason || 'Doctor ordered in-patient clinical admission',
-    }));
-
-    toast.info(`Auto-filled doctor consultation order from Dr. ${recentConsultation.doctor_name}!`);
-  };
 
   // Open admit modal with pre-selected ward from the visual Bed Map
   const handleAdmitInWard = (wardId) => {
@@ -1349,47 +1356,40 @@ const ReceptionistAdmissions = () => {
                     </div>
                   )}
 
-                  {/* 2. RECENT DOCTOR CONSULTATION AUTO-FILL BANNER */}
+                  {/* 2. AUTOMATIC CLINICAL CONSULTATION PRE-FILL BANNER (NO BUTTON NEEDED) */}
                   {recentConsultation && (
                     <div
                       style={{
                         marginTop: 10,
                         padding: '10px 14px',
-                        background: '#fdf4ff',
-                        border: '1px solid #f0abfc',
+                        background: '#f0fdf4',
+                        border: '1px solid #86efac',
                         borderRadius: 8,
                         display: 'flex',
-                        justifyContent: 'space-between',
                         alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 8,
+                        gap: 10,
                       }}
                     >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#86198f' }}>
-                          <Sparkles size={14} />
-                          Recent Consultation Found (Dr. {recentConsultation.doctor_name})
+                      <CheckCircle2 size={18} color="#16a34a" style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#15803d' }}>
+                          <Sparkles size={14} color="#16a34a" />
+                          {recentConsultation.doctor_name
+                            ? `Auto-Filled: Examining Doctor & Clinical Order (Dr. ${recentConsultation.doctor_name})`
+                            : `Auto-Filled: Clinical Baseline from Patient Profile`}
                         </div>
-                        <div style={{ fontSize: 11.5, color: '#701a75', marginTop: 2 }}>
-                          {recentConsultation.specialization} · Reason: <em>"{recentConsultation.reason}"</em>
+                        <div style={{ fontSize: 11.5, color: '#166534', marginTop: 2 }}>
+                          {recentConsultation.specialization && <span>{recentConsultation.specialization} · </span>}
+                          Indication / Reason: <em>"{recentConsultation.reason || 'Doctor ordered in-patient clinical admission'}"</em>
                         </div>
                       </div>
+                    </div>
+                  )}
 
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        style={{
-                          background: '#a21caf',
-                          color: '#ffffff',
-                          fontSize: 11.5,
-                          padding: '4px 10px',
-                          borderRadius: 6,
-                          fontWeight: 700,
-                        }}
-                        onClick={handleAutoFillConsultation}
-                      >
-                        ⚡ Auto-Fill Doctor Order
-                      </button>
+                  {loadingConsultation && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <RefreshCw size={12} className="spin" />
+                      Checking doctor consultation & clinical records...
                     </div>
                   )}
                 </div>

@@ -703,7 +703,34 @@ router.get('/patients/:id/recent-consultation', authenticateToken, authorizeRole
       LIMIT 1
     `, [patientId]);
 
-    res.json({ success: true, data: rows.length > 0 ? rows[0] : null });
+    if (rows.length > 0) {
+      return res.json({ success: true, data: rows[0] });
+    }
+
+    // Fallback: check if patient has recorded medical history or allergy notes to populate clinical reason
+    const [pRows] = await pool.query(
+      `SELECT medical_history, allergies FROM patients WHERE patient_id = ?`,
+      [patientId]
+    );
+    if (pRows.length > 0 && (pRows[0].medical_history || pRows[0].allergies)) {
+      const summary = [
+        pRows[0].medical_history ? `Clinical History: ${pRows[0].medical_history}` : null,
+        pRows[0].allergies ? `Allergies: ${pRows[0].allergies}` : null
+      ].filter(Boolean).join(' | ');
+
+      return res.json({
+        success: true,
+        data: {
+          appointment_id: null,
+          doctor_id: null,
+          doctor_name: null,
+          reason: summary,
+          specialization: null
+        }
+      });
+    }
+
+    res.json({ success: true, data: null });
   } catch (err) {
     console.error('Error fetching patient recent consultation:', err);
     res.status(500).json({ success: false, message: 'Server error' });
