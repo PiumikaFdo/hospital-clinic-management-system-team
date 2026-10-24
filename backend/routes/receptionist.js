@@ -950,4 +950,500 @@ router.put('/admissions/:id/discharge', authenticateToken, authorizeRoles('recep
   }
 });
 
+// ============================================================================
+// APPOINTMENTS MANAGEMENT (FULL CRUD & BILLING INTEGRATION)
+// ============================================================================
+
+// GET /api/receptionist/appointments (with live patient, doctor, and billing details)
+router.get('/appointments', authenticateToken, authorizeRoles('receptionist', 'admin'), async (req, res) => {
+  try {
+    const { search, doctor_id, status, date, start_date, end_date, billing_status } = req.query;
+
+    let q = `
+      SELECT 
+        a.appointment_id,
+        a.patient_id,
+        a.doctor_id,
+        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+        a.appointment_time,
+        a.reason,
+        a.status,
+        a.appointment_type,
+        a.guest_name,
+        a.guest_phone,
+        a.guest_email,
+        a.notes,
+        a.created_at,
+        p.patient_code,
+        p.blood_group,
+        p.emergency_contact,
+        p.emergency_contact_name,
+        p.allergies,
+        COALESCE(pu.first_name, a.guest_name) AS first_name,
+        COALESCE(pu.last_name, '') AS last_name,
+        COALESCE(CONCAT(pu.first_name, ' ', pu.last_name), a.guest_name) AS patient_name,
+        COALESCE(pu.phone, a.guest_phone) AS patient_phone,
+        COALESCE(pu.email, a.guest_email) AS patient_email,
+        pu.gender AS patient_gender,
+        TIMESTAMPDIFF(YEAR, pu.date_of_birth, CURDATE()) AS patient_age,
+        CONCAT(du.first_name, ' ', du.last_name) AS doctor_name,
+        ds.specialization AS doctor_specialization,
+        d.dept_name,
+        d.dept_id,
+        b.bill_id,
+        b.total_amount AS bill_total,
+        b.paid_amount AS bill_paid,
+        b.balance_amount AS bill_balance,
+        b.payment_status AS bill_payment_status,
+        DATE_FORMAT(b.bill_date, '%Y-%m-%d') AS bill_date
+      FROM appointments a
+      LEFT JOIN patients p ON a.patient_id = p.patient_id
+      LEFT JOIN users pu ON p.user_id = pu.user_id
+      JOIN staff ds ON a.doctor_id = ds.staff_id
+      JOIN users du ON ds.user_id = du.user_id
+      JOIN departments d ON ds.dept_id = d.dept_id
+      LEFT JOIN bills b ON b.appointment_id = a.appointment_id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (search) {
+      q += ` AND (
+        CONCAT(COALESCE(pu.first_name,''), ' ', COALESCE(pu.last_name,'')) LIKE ?
+        OR a.guest_name LIKE ?
+        OR p.patient_code LIKE ?
+        OR pu.phone LIKE ?
+        OR a.guest_phone LIKE ?
+        OR CONCAT(du.first_name, ' ', du.last_name) LIKE ?
+        OR a.appointment_id = ?
+      )`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s, s, s, isNaN(search) ? -1 : Number(search));
+    }
+
+    if (doctor_id) {
+      q += ' AND a.doctor_id = ?';
+      params.push(doctor_id);
+    }
+
+    if (status && status !== 'ALL') {
+      q += ' AND a.status = ?';
+      params.push(status);
+    }
+
+    if (date) {
+      q += ' AND a.appointment_date = ?';
+      params.push(date);
+    } else if (start_date && end_date) {
+      q += ' AND a.appointment_date BETWEEN ? AND ?';
+      params.push(start_date, end_date);
+    }
+
+    if (billing_status && billing_status !== 'ALL') {
+      if (billing_status === 'Paid') {
+        q += " AND b.payment_status = 'Paid'";
+      } else if (billing_status === 'Pending') {
+        q += " AND b.payment_status = 'Pending'";
+      } else if (billing_status === 'Unbilled') {
+        q += ' AND b.bill_id IS NULL';
+      }
+    }
+
+    q += ' ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 250';
+
+    const [rows] = await pool.query(q, params);
+
+    // Compute receptionist appointment desk stats
+    const [[stats]] = await pool.query(`
+      SELECT
+        COUNT(CASE WHEN a.appointment_date = CURDATE() THEN 1 END) AS today_total,
+        COUNT(CASE WHEN a.appointment_date = CURDATE() AND a.status = 'Confirmed' THEN 1 END) AS today_confirmed,
+        COUNT(CASE WHEN a.appointment_date = CURDATE() AND a.status = 'Completed' THEN 1 END) AS today_completed,
+        COUNT(CASE WHEN a.appointment_date = CURDATE() AND b.payment_status = 'Paid' THEN 1 END) AS today_billed,
+        COALESCE(SUM(CASE WHEN a.appointment_date = CURDATE() THEN b.paid_amount ELSE 0 END), 0) AS today_revenue,
+        COUNT(CASE WHEN b.bill_id IS NULL AND a.status IN ('Confirmed', 'Completed') THEN 1 END) AS total_unbilled
+      FROM appointments a
+      LEFT JOIN bills b ON b.appointment_id = a.appointment_id
+    `);
+
+    res.json({
+      success: true,
+      data: rows,
+      stats: {
+        today_total: Number(stats?.today_total || 0),
+        today_confirmed: Number(stats?.today_confirmed || 0),
+        today_completed: Number(stats?.today_completed || 0),
+        today_billed: Number(stats?.today_billed || 0),
+        today_revenue: Number(stats?.today_revenue || 0),
+        total_unbilled: Number(stats?.total_unbilled || 0)
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching receptionist appointments:', err);
+    res.status(500).json({ success: false, message: 'Server error fetching appointments' });
+  }
+});
+
+// POST /api/receptionist/appointments (Create appointment with existing/new patient + optional instant billing)
+router.post('/appointments', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const {
+      patient_mode = 'existing',
+      patient_id,
+      // For new walk-in patient quick creation:
+      first_name,
+      last_name,
+      email,
+      phone,
+      gender = 'Male',
+      date_of_birth,
+      blood_group = 'O+',
+      address,
+      emergency_contact,
+      emergency_contact_name,
+      allergies,
+      // Appointment fields:
+      doctor_id,
+      appointment_date,
+      appointment_time,
+      appointment_type = 'Walk-in',
+      reason = 'Clinical Consultation',
+      notes,
+      // Billing & payment options:
+      generate_bill = false,
+      doctor_fees = 2000,
+      hospital_fees = 500,
+      discount = 0,
+      tax_rate = 0,
+      is_paid = false,
+      payment_method = 'Cash',
+      transaction_reference = ''
+    } = req.body;
+
+    if (!doctor_id || !appointment_date || !appointment_time) {
+      connection.release();
+      return res.status(400).json({ success: false, message: 'Doctor, Date, and Time slot are required.' });
+    }
+
+    // Verify receptionist staff ID
+    let receptionistStaffId = req.user.staff_id;
+    if (!receptionistStaffId) {
+      const [staffRow] = await connection.query('SELECT staff_id FROM staff WHERE user_id = ?', [req.user.user_id]);
+      if (staffRow.length) receptionistStaffId = staffRow[0].staff_id;
+    }
+
+    await connection.beginTransaction();
+
+    let resolvedPatientId = patient_id;
+    let patientName = '';
+
+    if (patient_mode === 'new') {
+      if (!first_name || !phone) {
+        await connection.rollback();
+        connection.release();
+        return res.status(400).json({ success: false, message: 'First name and phone number are required for new patient registration.' });
+      }
+
+      // Check if user with phone or email already exists
+      const patientEmail = email || `${first_name.toLowerCase().replace(/[^a-z0-9]/g, '')}${Math.floor(1000 + Math.random() * 9000)}@clinic.com`;
+      const username = `${first_name.toLowerCase().replace(/[^a-z0-9]/g, '')}${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const [userResult] = await connection.query(
+        `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, gender, date_of_birth, address)
+         VALUES (?, ?, '$2a$10$placeholder', 'patient', ?, ?, ?, ?, ?, ?)`,
+        [username, patientEmail, first_name, last_name || '', phone, gender, date_of_birth || null, address || null]
+      );
+      const newUserId = userResult.insertId;
+      const patientCode = `PAT${String(newUserId).padStart(6, '0')}`;
+
+      const [patResult] = await connection.query(
+        `INSERT INTO patients (user_id, patient_code, blood_group, emergency_contact, emergency_contact_name, allergies)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [newUserId, patientCode, blood_group, emergency_contact || null, emergency_contact_name || null, allergies || null]
+      );
+      resolvedPatientId = patResult.insertId;
+      patientName = `${first_name} ${last_name || ''}`.trim();
+    } else {
+      if (!resolvedPatientId) {
+        await connection.rollback();
+        connection.release();
+        return res.status(400).json({ success: false, message: 'Please select an existing patient.' });
+      }
+
+      const [pRows] = await connection.query(
+        `SELECT p.patient_id, CONCAT(u.first_name, ' ', u.last_name) AS patient_name
+         FROM patients p JOIN users u ON p.user_id = u.user_id
+         WHERE p.patient_id = ?`,
+        [resolvedPatientId]
+      );
+      if (!pRows.length) {
+        await connection.rollback();
+        connection.release();
+        return res.status(404).json({ success: false, message: 'Selected patient not found.' });
+      }
+      patientName = pRows[0].patient_name;
+    }
+
+    // Check slot collision
+    const [conflict] = await connection.query(
+      `SELECT appointment_id FROM appointments
+       WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ? AND status != 'Cancelled'`,
+      [doctor_id, appointment_date, appointment_time]
+    );
+    if (conflict.length) {
+      await connection.rollback();
+      connection.release();
+      return res.status(409).json({
+        success: false,
+        message: 'This time slot is already booked for the selected doctor. Please select an available slot.'
+      });
+    }
+
+    // Normalize appointment type
+    const normalizedType = ['Online', 'Walk-in', 'Emergency'].includes(appointment_type)
+      ? appointment_type
+      : 'Walk-in';
+
+    // Insert Appointment
+    const [apptResult] = await connection.query(
+      `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type, notes)
+       VALUES (?, ?, ?, ?, ?, 'Confirmed', ?, ?)`,
+      [resolvedPatientId, doctor_id, appointment_date, appointment_time, reason, normalizedType, notes || null]
+    );
+    const newAppointmentId = apptResult.insertId;
+
+    // Optional Billing Integration
+    let generatedBillId = null;
+    let paymentProcessed = false;
+
+    if (generate_bill && receptionistStaffId) {
+      await connection.query(
+        'CALL sp_generate_bill(?, ?, ?, NULL, ?, ?, ?, ?, @bid)',
+        [resolvedPatientId, receptionistStaffId, newAppointmentId, doctor_fees, hospital_fees, discount || 0, tax_rate || 0]
+      );
+      const [[bidRow]] = await connection.query('SELECT @bid AS bid');
+      generatedBillId = bidRow?.bid;
+
+      if (generatedBillId && is_paid) {
+        const [[billRow]] = await connection.query('SELECT total_amount FROM bills WHERE bill_id = ?', [generatedBillId]);
+        const totalAmount = billRow?.total_amount || (Number(doctor_fees) + Number(hospital_fees));
+
+        await connection.query(
+          'CALL sp_process_payment(?, ?, ?, ?, ?)',
+          [generatedBillId, totalAmount, payment_method || 'Cash', transaction_reference || `OPD-APPT-${newAppointmentId}`, receptionistStaffId]
+        );
+        paymentProcessed = true;
+      }
+    }
+
+    await connection.commit();
+    connection.release();
+
+    let successMsg = `Appointment #${newAppointmentId} confirmed for ${patientName}!`;
+    if (generatedBillId) {
+      successMsg += paymentProcessed
+        ? ` Consultation Invoice #${generatedBillId} generated and marked Paid (${payment_method}).`
+        : ` Consultation Invoice #${generatedBillId} created (Pending in Billing).`;
+    }
+
+    res.status(201).json({
+      success: true,
+      message: successMsg,
+      data: {
+        appointment_id: newAppointmentId,
+        patient_id: resolvedPatientId,
+        bill_id: generatedBillId,
+        is_paid: paymentProcessed
+      }
+    });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Error in receptionist create appointment:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Failed to create appointment' });
+  }
+});
+
+// PUT /api/receptionist/appointments/:id (Reschedule / update appointment)
+router.put('/appointments/:id', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { doctor_id, appointment_date, appointment_time, appointment_type, reason, status, notes } = req.body;
+
+    const [existing] = await pool.query('SELECT * FROM appointments WHERE appointment_id = ?', [id]);
+    if (!existing.length) {
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
+    }
+
+    const current = existing[0];
+    const targetDoctor = doctor_id || current.doctor_id;
+    const targetDate = appointment_date || current.appointment_date;
+    const targetTime = appointment_time || current.appointment_time;
+    const targetStatus = status || current.status;
+    const targetReason = reason !== undefined ? reason : current.reason;
+    const targetNotes = notes !== undefined ? notes : current.notes;
+    const targetType = ['Online', 'Walk-in', 'Emergency'].includes(appointment_type)
+      ? appointment_type
+      : current.appointment_type;
+
+    // Check slot collision if rescheduling date/time/doctor
+    if (
+      (targetDoctor !== current.doctor_id || targetDate !== current.appointment_date || targetTime !== current.appointment_time) &&
+      targetStatus !== 'Cancelled'
+    ) {
+      const [conflict] = await pool.query(
+        `SELECT appointment_id FROM appointments
+         WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ? AND appointment_id != ? AND status != 'Cancelled'`,
+        [targetDoctor, targetDate, targetTime, id]
+      );
+      if (conflict.length) {
+        return res.status(409).json({
+          success: false,
+          message: 'The selected doctor is already booked at that date and time slot.'
+        });
+      }
+    }
+
+    await pool.query(
+      `UPDATE appointments
+       SET doctor_id = ?, appointment_date = ?, appointment_time = ?, reason = ?, status = ?, appointment_type = ?, notes = ?
+       WHERE appointment_id = ?`,
+      [targetDoctor, targetDate, targetTime, targetReason, targetStatus, targetType, targetNotes, id]
+    );
+
+    res.json({
+      success: true,
+      message: `Appointment #${id} updated successfully!`
+    });
+  } catch (err) {
+    console.error('Error updating appointment:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Failed to update appointment' });
+  }
+});
+
+// DELETE /api/receptionist/appointments/:id (Safe cancellation or removal)
+router.delete('/appointments/:id', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [appts] = await pool.query('SELECT * FROM appointments WHERE appointment_id = ?', [id]);
+    if (!appts.length) {
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
+    }
+
+    // Check dependent records
+    const [[{ records_count }]] = await pool.query(
+      'SELECT COUNT(*) AS records_count FROM medical_records WHERE appointment_id = ?',
+      [id]
+    );
+    const [[{ bills_count }]] = await pool.query(
+      'SELECT COUNT(*) AS bills_count FROM bills WHERE appointment_id = ?',
+      [id]
+    );
+
+    if (records_count > 0 || bills_count > 0) {
+      // Compliance protection: safely cancel status
+      await pool.query("UPDATE appointments SET status = 'Cancelled' WHERE appointment_id = ?", [id]);
+      return res.json({
+        success: true,
+        action: 'cancelled',
+        message: `Appointment #${id} has associated clinical records or invoices. It has been safely marked as Cancelled to preserve audit history.`
+      });
+    }
+
+    // Completely unlinked fresh record: safely delete
+    await pool.query('DELETE FROM appointments WHERE appointment_id = ?', [id]);
+    res.json({
+      success: true,
+      action: 'deleted',
+      message: `Appointment #${id} removed successfully.`
+    });
+  } catch (err) {
+    console.error('Error deleting appointment:', err);
+    res.status(500).json({ success: false, message: err.sqlMessage || 'Failed to remove appointment' });
+  }
+});
+
+// POST /api/receptionist/appointments/:id/bill (Instant OPD Consultation Billing & Payment)
+router.post('/appointments/:id/bill', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      doctor_fees = 2000,
+      hospital_fees = 500,
+      discount = 0,
+      tax_rate = 0,
+      is_paid = false,
+      payment_method = 'Cash',
+      transaction_reference = ''
+    } = req.body;
+
+    const [appts] = await pool.query(
+      `SELECT a.*, CONCAT(u.first_name, ' ', u.last_name) AS patient_name
+       FROM appointments a
+       LEFT JOIN patients p ON a.patient_id = p.patient_id
+       LEFT JOIN users u ON p.user_id = u.user_id
+       WHERE a.appointment_id = ?`,
+      [id]
+    );
+    if (!appts.length) {
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
+    }
+    const appt = appts[0];
+
+    // Check if bill already exists for this appointment
+    const [existingBills] = await pool.query(
+      'SELECT bill_id, total_amount, paid_amount, balance_amount, payment_status FROM bills WHERE appointment_id = ?',
+      [id]
+    );
+    if (existingBills.length) {
+      return res.status(400).json({
+        success: false,
+        message: `Invoice #${existingBills[0].bill_id} already exists for Appointment #${id}.`,
+        bill: existingBills[0]
+      });
+    }
+
+    // Resolve receptionist staff id
+    let receptionistStaffId = req.user.staff_id;
+    if (!receptionistStaffId) {
+      const [staffRow] = await pool.query('SELECT staff_id FROM staff WHERE user_id = ?', [req.user.user_id]);
+      if (staffRow.length) receptionistStaffId = staffRow[0].staff_id;
+    }
+
+    await pool.query(
+      'CALL sp_generate_bill(?, ?, ?, NULL, ?, ?, ?, ?, @bid)',
+      [appt.patient_id, receptionistStaffId, id, doctor_fees, hospital_fees, discount || 0, tax_rate || 0]
+    );
+    const [[bidRow]] = await pool.query('SELECT @bid AS bid');
+    const billId = bidRow?.bid;
+
+    let paymentDone = false;
+    if (billId && is_paid) {
+      const [[billRow]] = await pool.query('SELECT total_amount FROM bills WHERE bill_id = ?', [billId]);
+      const totalAmount = billRow?.total_amount || (Number(doctor_fees) + Number(hospital_fees));
+
+      await pool.query(
+        'CALL sp_process_payment(?, ?, ?, ?, ?)',
+        [billId, totalAmount, payment_method || 'Cash', transaction_reference || `OPD-APPT-${id}`, receptionistStaffId]
+      );
+      paymentDone = true;
+    }
+
+    res.status(201).json({
+      success: true,
+      message: paymentDone
+        ? `Consultation Invoice #${billId} generated and marked Paid via ${payment_method}!`
+        : `Consultation Invoice #${billId} generated and queued in Billing Desk!`,
+      bill_id: billId,
+      is_paid: paymentDone
+    });
+  } catch (err) {
+    console.error('Error generating appointment bill:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Failed to generate bill' });
+  }
+});
+
 module.exports = router;
+

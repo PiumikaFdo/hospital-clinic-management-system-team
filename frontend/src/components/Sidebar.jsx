@@ -82,9 +82,10 @@ const NAV_CONFIGS = {
     { 
       section: 'Operations', 
       items: [
-        { to: '/receptionist/patients',   icon: Users,      label: 'Patient Intake' },
-        { to: '/receptionist/billing',    icon: CreditCard, label: 'Invoices & Billing' },
-        { to: '/receptionist/admissions', icon: Building2,  label: 'Patient Admissions' },
+        { to: '/receptionist/patients',     icon: Users,        label: 'Patient Intake' },
+        { to: '/receptionist/appointments', icon: CalendarDays, label: 'Appointments' },
+        { to: '/receptionist/billing',      icon: CreditCard,   label: 'Invoices & Billing' },
+        { to: '/receptionist/admissions',   icon: Building2,    label: 'Patient Admissions' },
       ]
     },
   ],
