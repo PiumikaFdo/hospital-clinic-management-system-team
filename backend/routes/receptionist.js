@@ -25,42 +25,347 @@ router.get('/dashboard', authenticateToken, authorizeRoles('receptionist'), asyn
 // GET /api/receptionist/patients (utilizes idx_reception_patients_reg_date)
 router.get('/patients', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
   try {
-    const { search, date, start_date, end_date } = req.query;
-    let q = 'SELECT * FROM vw_registered_patients WHERE 1=1';
+    const { search, date, start_date, end_date, blood_group } = req.query;
+    let q = `
+      SELECT
+        p.patient_id, p.user_id, p.patient_code, p.blood_group, p.registered_at,
+        p.emergency_contact, p.emergency_contact_name, p.allergies, p.medical_history,
+        p.insurance_provider, p.insurance_number,
+        u.first_name, u.last_name, u.email, u.phone, u.gender, u.date_of_birth, u.address,
+        COALESCE(u.is_active, 1) AS is_active,
+        TIMESTAMPDIFF(YEAR, u.date_of_birth, CURDATE()) AS age,
+        (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.patient_id) AS total_appointments,
+        (SELECT ad.admission_id FROM admissions ad WHERE ad.patient_id = p.patient_id AND ad.status = 'Active' LIMIT 1) AS active_admission_id,
+        (SELECT CONCAT(w.ward_name, ' (Bed ', b.bed_number, ')') FROM admissions ad JOIN wards w ON ad.ward_id = w.ward_id JOIN beds b ON ad.bed_id = b.bed_id WHERE ad.patient_id = p.patient_id AND ad.status = 'Active' LIMIT 1) AS active_ward_bed,
+        (SELECT COUNT(*) FROM bills bl WHERE bl.patient_id = p.patient_id AND bl.payment_status = 'Pending') AS pending_bills_count
+      FROM patients p
+      JOIN users u ON p.user_id = u.user_id
+      WHERE 1=1
+    `;
     const params = [];
-    if (date) { q += ' AND DATE(registered_at) = ?'; params.push(date); }
-    if (start_date) { q += ' AND DATE(registered_at) >= ?'; params.push(start_date); }
-    if (end_date) { q += ' AND DATE(registered_at) <= ?'; params.push(end_date); }
+    if (date) { q += ' AND DATE(p.registered_at) = ?'; params.push(date); }
+    if (start_date) { q += ' AND DATE(p.registered_at) >= ?'; params.push(start_date); }
+    if (end_date) { q += ' AND DATE(p.registered_at) <= ?'; params.push(end_date); }
+    if (blood_group) { q += ' AND p.blood_group = ?'; params.push(blood_group); }
     if (search) {
-      q += ' AND (first_name LIKE ? OR last_name LIKE ? OR patient_code LIKE ? OR phone LIKE ?)';
+      q += ' AND (u.first_name LIKE ? OR u.last_name LIKE ? OR p.patient_code LIKE ? OR u.phone LIKE ? OR p.emergency_contact LIKE ? OR p.emergency_contact_name LIKE ?)';
       const s = `%${search}%`;
-      params.push(s,s,s,s);
+      params.push(s,s,s,s,s,s);
     }
-    q += ' ORDER BY registered_at DESC';
+    q += ' ORDER BY p.registered_at DESC';
     const [rows] = await pool.query(q, params);
     res.json({ success: true, data: rows });
   } catch (err) {
+    console.error('Fetch patients error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// POST /api/receptionist/patients (Register patient + book appointment)
-router.post('/patients', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+// GET /api/receptionist/patients/:id (Detailed intake dossier)
+router.get('/patients/:id', authenticateToken, authorizeRoles('receptionist','admin','doctor','nurse'), async (req, res) => {
   try {
-    const { first_name, last_name, email, phone, gender, date_of_birth, blood_group, address, doctor_id, appt_date, appt_time, reason } = req.body;
+    const { id } = req.params;
+    const [rows] = await pool.query(`
+      SELECT
+        p.patient_id, p.user_id, p.patient_code, p.blood_group, p.registered_at,
+        p.emergency_contact, p.emergency_contact_name, p.allergies, p.medical_history,
+        p.insurance_provider, p.insurance_number,
+        u.first_name, u.last_name, u.email, u.phone, u.gender, u.date_of_birth, u.address,
+        COALESCE(u.is_active, 1) AS is_active,
+        TIMESTAMPDIFF(YEAR, u.date_of_birth, CURDATE()) AS age
+      FROM patients p
+      JOIN users u ON p.user_id = u.user_id
+      WHERE p.patient_id = ?
+    `, [id]);
 
-    // Convert empty strings to null for optional integer/date fields
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    const patient = rows[0];
+
+    // Recent appointments
+    const [appointments] = await pool.query(`
+      SELECT a.appointment_id, a.appointment_date, a.appointment_time, a.status, a.reason,
+             CONCAT(du.first_name, ' ', du.last_name) AS doctor_name, d.dept_name
+      FROM appointments a
+      JOIN staff ds ON a.doctor_id = ds.staff_id
+      JOIN users du ON ds.user_id = du.user_id
+      LEFT JOIN departments d ON ds.dept_id = d.dept_id
+      WHERE a.patient_id = ?
+      ORDER BY a.appointment_date DESC, a.appointment_time DESC
+      LIMIT 5
+    `, [id]);
+
+    // Recent admissions
+    const [admissions] = await pool.query(`
+      SELECT ad.admission_id, ad.admission_date, ad.discharge_date, ad.status,
+             w.ward_name, w.ward_type, b.bed_number,
+             GREATEST(1, DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date)) AS stay_days
+      FROM admissions ad
+      LEFT JOIN wards w ON ad.ward_id = w.ward_id
+      LEFT JOIN beds b ON ad.bed_id = b.bed_id
+      WHERE ad.patient_id = ?
+      ORDER BY ad.admission_date DESC
+      LIMIT 5
+    `, [id]);
+
+    // Recent bills
+    const [bills] = await pool.query(`
+      SELECT b.bill_id, b.bill_date, b.total_amount, b.paid_amount, b.payment_status
+      FROM bills b
+      WHERE b.patient_id = ?
+      ORDER BY b.bill_date DESC
+      LIMIT 5
+    `, [id]);
+
+    res.json({
+      success: true,
+      data: {
+        ...patient,
+        appointments,
+        admissions,
+        bills
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// POST /api/receptionist/patients (Register patient + emergency contact + clinical intake)
+router.post('/patients', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const {
+      first_name, last_name, email, phone, gender, date_of_birth, blood_group, address,
+      emergency_contact, emergency_contact_name, allergies, medical_history, insurance_provider, insurance_number,
+      doctor_id, appt_date, appt_time, reason
+    } = req.body;
+
+    if (!first_name || !last_name || !email || !phone) {
+      connection.release();
+      return res.status(400).json({ success: false, message: 'First name, last name, email, and phone are required' });
+    }
+
     const doctorId   = (doctor_id   && doctor_id   !== '') ? parseInt(doctor_id, 10) : null;
     const apptDate   = (appt_date   && appt_date   !== '') ? appt_date   : null;
     const apptTime   = (appt_time   && appt_time   !== '') ? appt_time   : null;
     const apptReason = (reason      && reason      !== '') ? reason      : null;
 
-    await pool.query('CALL sp_register_patient_appointment(?,?,?,?,?,?,?,?,?,?,?,?,@pid,@aid)',
-      [first_name, last_name, email, phone, gender, date_of_birth || null, blood_group, address, doctorId, apptDate, apptTime, apptReason]);
-    const [[ids]] = await pool.query('SELECT @pid AS patient_id, @aid AS appointment_id');
-    res.status(201).json({ success: true, message: 'Patient registered and appointment booked', data: ids });
+    let patientId = null;
+    let appointmentId = null;
+    let patientCode = null;
+
+    await connection.beginTransaction();
+
+    if (doctorId && apptDate && apptTime) {
+      // Register with appointment using procedure sp_register_patient_appointment
+      await connection.query(
+        'CALL sp_register_patient_appointment(?,?,?,?,?,?,?,?,?,?,?,?,@pid,@aid)',
+        [first_name, last_name, email, phone, gender || 'Male', date_of_birth || null, blood_group || 'O+', address || null, doctorId, apptDate, apptTime, apptReason]
+      );
+      const [[ids]] = await connection.query('SELECT @pid AS patient_id, @aid AS appointment_id');
+      patientId = ids.patient_id;
+      appointmentId = ids.appointment_id;
+
+      // Update emergency contact and clinical intake fields
+      await connection.query(
+        `UPDATE patients SET 
+          emergency_contact = ?, 
+          emergency_contact_name = ?, 
+          allergies = ?, 
+          medical_history = ?, 
+          insurance_provider = ?, 
+          insurance_number = ? 
+        WHERE patient_id = ?`,
+        [
+          emergency_contact || null,
+          emergency_contact_name || null,
+          allergies || null,
+          medical_history || null,
+          insurance_provider || null,
+          insurance_number || null,
+          patientId
+        ]
+      );
+
+      const [[codeRow]] = await connection.query('SELECT patient_code FROM patients WHERE patient_id = ?', [patientId]);
+      patientCode = codeRow?.patient_code;
+    } else {
+      // Pure Intake / Registration without immediate doctor appointment
+      const username = `${first_name.toLowerCase().replace(/[^a-z0-9]/g, '')}${last_name.toLowerCase().replace(/[^a-z0-9]/g, '')}${Math.floor(1000 + Math.random() * 9000)}`;
+      const [userResult] = await connection.query(
+        `INSERT INTO users(username, email, password_hash, role, first_name, last_name, phone, gender, date_of_birth, address)
+         VALUES(?, ?, '$2a$10$placeholder', 'patient', ?, ?, ?, ?, ?, ?)`,
+        [username, email, first_name, last_name, phone, gender || 'Male', date_of_birth || null, address || null]
+      );
+      const userId = userResult.insertId;
+      patientCode = `PAT${String(userId).padStart(6, '0')}`;
+
+      const [patientResult] = await connection.query(
+        `INSERT INTO patients(user_id, patient_code, blood_group, emergency_contact, emergency_contact_name, allergies, medical_history, insurance_provider, insurance_number)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          patientCode,
+          blood_group || 'O+',
+          emergency_contact || null,
+          emergency_contact_name || null,
+          allergies || null,
+          medical_history || null,
+          insurance_provider || null,
+          insurance_number || null
+        ]
+      );
+      patientId = patientResult.insertId;
+    }
+
+    await connection.commit();
+    connection.release();
+
+    res.status(201).json({
+      success: true,
+      message: appointmentId ? 'Patient registered and initial appointment confirmed' : 'Patient registered and intake file created successfully',
+      data: {
+        patient_id: patientId,
+        patient_code: patientCode,
+        appointment_id: appointmentId
+      }
+    });
   } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Registration error:', err);
     res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Registration failed' });
+  }
+});
+
+// PUT /api/receptionist/patients/:id (Update patient profile & emergency contact)
+router.put('/patients/:id', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { id } = req.params;
+    const {
+      first_name, last_name, email, phone, gender, date_of_birth, address,
+      blood_group, emergency_contact, emergency_contact_name, allergies, medical_history,
+      insurance_provider, insurance_number
+    } = req.body;
+
+    const [rows] = await connection.query('SELECT user_id FROM patients WHERE patient_id = ?', [id]);
+    if (!rows.length) {
+      connection.release();
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+    const userId = rows[0].user_id;
+
+    await connection.beginTransaction();
+
+    if (userId) {
+      await connection.query(
+        `UPDATE users SET 
+          first_name = COALESCE(?, first_name),
+          last_name = COALESCE(?, last_name),
+          email = COALESCE(?, email),
+          phone = COALESCE(?, phone),
+          gender = COALESCE(?, gender),
+          date_of_birth = ?,
+          address = ?
+        WHERE user_id = ?`,
+        [first_name, last_name, email, phone, gender, date_of_birth || null, address || null, userId]
+      );
+    }
+
+    await connection.query(
+      `UPDATE patients SET 
+        blood_group = COALESCE(?, blood_group),
+        emergency_contact = ?,
+        emergency_contact_name = ?,
+        allergies = ?,
+        medical_history = ?,
+        insurance_provider = ?,
+        insurance_number = ?
+      WHERE patient_id = ?`,
+      [
+        blood_group,
+        emergency_contact || null,
+        emergency_contact_name || null,
+        allergies || null,
+        medical_history || null,
+        insurance_provider || null,
+        insurance_number || null,
+        id
+      ]
+    );
+
+    await connection.commit();
+    connection.release();
+
+    res.json({ success: true, message: 'Patient intake profile and emergency contacts updated successfully' });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Update patient error:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Update failed' });
+  }
+});
+
+// PATCH /api/receptionist/patients/:id/status (Toggle patient active status)
+router.patch('/patients/:id/status', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    const [rows] = await pool.query('SELECT user_id FROM patients WHERE patient_id = ?', [id]);
+    if (!rows.length || !rows[0].user_id) {
+      return res.status(404).json({ success: false, message: 'Patient user account not found' });
+    }
+
+    await pool.query('UPDATE users SET is_active = ? WHERE user_id = ?', [is_active ? 1 : 0, rows[0].user_id]);
+    res.json({ success: true, message: `Patient account ${is_active ? 'activated' : 'deactivated'} successfully` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// DELETE /api/receptionist/patients/:id (Safe delete or deactivate)
+router.delete('/patients/:id', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [[{ apptCount }]] = await pool.query('SELECT COUNT(*) AS apptCount FROM appointments WHERE patient_id = ?', [id]);
+    const [[{ admCount }]] = await pool.query('SELECT COUNT(*) AS admCount FROM admissions WHERE patient_id = ?', [id]);
+    const [[{ billCount }]] = await pool.query('SELECT COUNT(*) AS billCount FROM bills WHERE patient_id = ?', [id]);
+
+    const [patientRows] = await pool.query('SELECT user_id FROM patients WHERE patient_id = ?', [id]);
+    if (!patientRows.length) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+    const userId = patientRows[0].user_id;
+
+    if (apptCount > 0 || admCount > 0 || billCount > 0) {
+      // Soft-deactivate for medical record retention & legal compliance
+      if (userId) {
+        await pool.query('UPDATE users SET is_active = 0 WHERE user_id = ?', [userId]);
+      }
+      return res.json({
+        success: true,
+        deactivated: true,
+        message: 'Patient has linked hospital records (appointments/bills). Profile has been safely deactivated to preserve audit trails.'
+      });
+    }
+
+    // Clean delete if newly added without clinical history
+    await pool.query('DELETE FROM patients WHERE patient_id = ?', [id]);
+    if (userId) {
+      await pool.query('DELETE FROM users WHERE user_id = ?', [userId]);
+    }
+
+    res.json({ success: true, message: 'Patient record removed successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.sqlMessage || 'Failed to delete patient' });
   }
 });
 
