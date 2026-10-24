@@ -1,0 +1,415 @@
+import React, { useEffect, useState } from 'react';
+import { toast } from 'react-toastify';
+import API from '../../api/axios';
+import DashboardLayout from '../../components/DashboardLayout';
+
+const NurseAdmissions = () => {
+  const [admissions, setAdmissions] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [wards, setWards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+
+  // Admit modal
+  const [showAdmitModal, setShowAdmitModal] = useState(false);
+  const [admitForm, setAdmitForm] = useState({
+    patient_id: '',
+    ward_id: '',
+    doctor_id: '',
+    reason: ''
+  });
+  const [admitting, setAdmitting] = useState(false);
+
+  // Discharge modal
+  const [showDischargeModal, setShowDischargeModal] = useState(false);
+  const [selectedAdmission, setSelectedAdmission] = useState(null);
+  const [dischargeForm, setDischargeForm] = useState({
+    diagnosis_at_discharge: '',
+    notes: ''
+  });
+  const [discharging, setDischarging] = useState(false);
+
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const fetchAdmissions = () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (statusFilter && statusFilter !== 'All') params.append('status', statusFilter);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    API.get(`/nurse/admissions?${params.toString()}`)
+      .then(res => setAdmissions(res.data.data || []))
+      .catch(err => toast.error('Failed to load admissions'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAdmissions();
+  }, [statusFilter, startDate, endDate]);
+
+  useEffect(() => {
+    API.get('/receptionist/patients').then(r => setPatients(r.data.data || [])).catch(() => {});
+    API.get('/appointments/public/doctors').then(r => setDoctors(r.data.data || [])).catch(() => {});
+    API.get('/receptionist/wards').then(r => setWards(r.data.data || [])).catch(() => {});
+  }, []);
+
+  const handleAdmit = async (e) => {
+    e.preventDefault();
+    if (!admitForm.patient_id || !admitForm.ward_id || !admitForm.doctor_id) {
+      return toast.warning('Please select patient, ward, and attending doctor');
+    }
+    setAdmitting(true);
+    try {
+      await API.post('/nurse/admissions', admitForm);
+      toast.success('Patient admitted and bed reserved successfully!');
+      setShowAdmitModal(false);
+      setAdmitForm({ patient_id: '', ward_id: '', doctor_id: '', reason: '' });
+      fetchAdmissions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Admission failed');
+    } finally {
+      setAdmitting(false);
+    }
+  };
+
+  const handleDischarge = async (e) => {
+    e.preventDefault();
+    if (!selectedAdmission) return;
+    setDischarging(true);
+    try {
+      await API.put(`/nurse/admissions/${selectedAdmission.admission_id}/discharge`, dischargeForm);
+      toast.success(`Patient ${selectedAdmission.patient_name} discharged successfully`);
+      setShowDischargeModal(false);
+      setSelectedAdmission(null);
+      setDischargeForm({ diagnosis_at_discharge: '', notes: '' });
+      fetchAdmissions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Discharge failed');
+    } finally {
+      setDischarging(false);
+    }
+  };
+
+  const filteredAdmissions = admissions.filter(a => {
+    const matchesSearch =
+      (a.patient_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (a.patient_code || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (a.ward_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (a.bed_number || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'All' || a.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  return (
+    <DashboardLayout title="In-Patient Admissions">
+      {/* TOP CONTROLS */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search patient, ward, or bed..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ width: 280 }}
+          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['All', 'Active', 'Discharged'].map(status => (
+              <button
+                key={status}
+                type="button"
+                className={`btn ${statusFilter === status ? 'btn-primary' : 'btn-outline'}`}
+                style={{ padding: '6px 14px', fontSize: 13 }}
+                onClick={() => setStatusFilter(status)}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              type="date"
+              className="form-control"
+              style={{ width: 140 }}
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              title="Admission Start Date"
+            />
+            <input
+              type="date"
+              className="form-control"
+              style={{ width: 140 }}
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              title="Admission End Date"
+            />
+            {(startDate || endDate) && (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setStartDate(''); setEndDate(''); }}>
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        <button className="btn btn-primary" onClick={() => setShowAdmitModal(true)}>
+          + Admit New Patient
+        </button>
+      </div>
+
+      {/* ADMISSIONS TABLE */}
+      <div className="card">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700 }}>
+            🏥 Patient Admissions List ({filteredAdmissions.length})
+          </h3>
+          <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+            Includes active in-patients and discharge history
+          </span>
+        </div>
+        <div style={{ padding: '0 24px 24px' }}>
+          {loading ? (
+            <p style={{ color: 'var(--gray-400)', padding: 20 }}>Loading admissions data...</p>
+          ) : filteredAdmissions.length === 0 ? (
+            <p style={{ color: 'var(--gray-400)', padding: 20 }}>No admissions match the current filter.</p>
+          ) : (
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Ward</th>
+                    <th>Bed</th>
+                    <th>Doctor</th>
+                    <th>Nurse</th>
+                    <th>Admitted</th>
+                    <th>Length of Stay</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAdmissions.map(a => (
+                    <tr key={a.admission_id}>
+                      <td>
+                        <strong>{a.patient_name}</strong>
+                        <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{a.patient_code}</div>
+                      </td>
+                      <td>
+                        <strong>{a.ward_name}</strong>
+                        <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{a.ward_type}</div>
+                      </td>
+                      <td>
+                        <span className="badge badge-purple" style={{ fontSize: 12 }}>
+                          Bed {a.bed_number}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: 13 }}>Dr. {a.doctor_name}</td>
+                      <td style={{ fontSize: 13, color: 'var(--gray-600)' }}>{a.nurse_name || 'N/A'}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {new Date(a.admission_date).toLocaleDateString()}
+                        <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
+                          {new Date(a.admission_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge badge-info">{a.days_admitted} days</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${a.status === 'Active' ? 'badge-success' : 'badge-gray'}`}>
+                          {a.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {a.status === 'Active' ? (
+                          <button
+                            className="btn btn-outline"
+                            style={{ fontSize: 12, padding: '5px 12px', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                            onClick={() => {
+                              setSelectedAdmission(a);
+                              setShowDischargeModal(true);
+                            }}
+                          >
+                            Discharge
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>Discharged</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ADMIT PATIENT MODAL */}
+      {showAdmitModal && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog animate-slide-up" style={{ maxWidth: 540 }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: 18, fontWeight: 700 }}>🛏️ Admit In-Patient</h3>
+              <button
+                className="btn-close"
+                onClick={() => setShowAdmitModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleAdmit}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">Select Registered Patient *</label>
+                  <select
+                    className="form-control"
+                    required
+                    value={admitForm.patient_id}
+                    onChange={e => setAdmitForm({ ...admitForm, patient_id: e.target.value })}
+                  >
+                    <option value="">-- Choose Patient --</option>
+                    {patients.map(p => (
+                      <option key={p.patient_id} value={p.patient_id}>
+                        {p.first_name} {p.last_name} ({p.patient_code || p.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Select Ward *</label>
+                    <select
+                      className="form-control"
+                      required
+                      value={admitForm.ward_id}
+                      onChange={e => setAdmitForm({ ...admitForm, ward_id: e.target.value })}
+                    >
+                      <option value="">-- Choose Ward --</option>
+                      {wards.map(w => (
+                        <option key={w.ward_id} value={w.ward_id}>
+                          {w.ward_name} ({w.available_beds || 0} free)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Attending Doctor *</label>
+                    <select
+                      className="form-control"
+                      required
+                      value={admitForm.doctor_id}
+                      onChange={e => setAdmitForm({ ...admitForm, doctor_id: e.target.value })}
+                    >
+                      <option value="">-- Choose Doctor --</option>
+                      {doctors.map(d => (
+                        <option key={d.staff_id} value={d.staff_id}>
+                          Dr. {d.first_name} {d.last_name} ({d.dept_name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Reason for Admission / Clinical Notes</label>
+                  <textarea
+                    className="form-control"
+                    rows="3"
+                    placeholder="E.g., Post-operative observation, severe acute pneumonia, IV antibiotics administration..."
+                    value={admitForm.reason}
+                    onChange={e => setAdmitForm({ ...admitForm, reason: e.target.value })}
+                  />
+                </div>
+
+                <div style={{ background: 'var(--gray-50)', padding: 12, borderRadius: 8, fontSize: 12, color: 'var(--gray-600)' }}>
+                  ℹ️ Submitting this form will automatically reserve and assign the first available bed in the selected ward.
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px', borderTop: '1px solid var(--border)' }}>
+                <button type="button" className="btn btn-outline" onClick={() => setShowAdmitModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={admitting}>
+                  {admitting ? 'Admitting...' : 'Confirm Admission'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DISCHARGE MODAL */}
+      {showDischargeModal && selectedAdmission && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog animate-slide-up" style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: 18, fontWeight: 700 }}>📋 Patient Discharge</h3>
+              <button
+                className="btn-close"
+                onClick={() => setShowDischargeModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleDischarge}>
+              <div className="modal-body">
+                <div style={{ background: 'var(--gray-50)', padding: 14, borderRadius: 8, marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{selectedAdmission.patient_name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 2 }}>
+                    Ward: {selectedAdmission.ward_name} • Bed: {selectedAdmission.bed_number} • Attending: Dr. {selectedAdmission.doctor_name}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
+                    Admitted: {new Date(selectedAdmission.admission_date).toLocaleDateString()} ({selectedAdmission.days_admitted} days)
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Diagnosis at Discharge *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    required
+                    placeholder="E.g., Fully recovered from acute gastroenteritis"
+                    value={dischargeForm.diagnosis_at_discharge}
+                    onChange={e => setDischargeForm({ ...dischargeForm, diagnosis_at_discharge: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Discharge Instructions & Nurse Notes</label>
+                  <textarea
+                    className="form-control"
+                    rows="3"
+                    placeholder="Take prescribed oral medication, follow up in 7 days, wound dressing clean..."
+                    value={dischargeForm.notes}
+                    onChange={e => setDischargeForm({ ...dischargeForm, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px', borderTop: '1px solid var(--border)' }}>
+                <button type="button" className="btn btn-outline" onClick={() => setShowDischargeModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} disabled={discharging}>
+                  {discharging ? 'Discharging...' : 'Confirm Discharge'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </DashboardLayout>
+  );
+};
+
+export default NurseAdmissions;
