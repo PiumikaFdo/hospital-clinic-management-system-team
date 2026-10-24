@@ -92,6 +92,43 @@ const ReceptionistAdmissions = () => {
     reason: '',
   });
 
+  // Parse structured doctor admission order from recent consultation reason string
+  const parsedAdmissionOrder = useMemo(() => {
+    if (!recentConsultation?.reason) return null;
+    const reason = recentConsultation.reason;
+    if (!reason.includes('[ADMISSION ORDER -')) return null;
+
+    // Extract priority from [ADMISSION ORDER - URGENT]
+    const priorityMatch = reason.match(/\[ADMISSION ORDER - ([A-Z]+)\]/);
+    const priority = priorityMatch ? priorityMatch[1] : null;
+
+    // Extract ward category from: Ward Category: ICU
+    const wardMatch = reason.match(/Ward Category:\s*([^|]+)/);
+    const ward_category = wardMatch ? wardMatch[1].trim() : null;
+
+    // Extract indication/diagnosis
+    const indicationMatch = reason.match(/Indication:\s*([^|]+)/);
+    const diagnosis = indicationMatch ? indicationMatch[1].trim() : null;
+
+    // Extract staff instructions
+    const instrMatch = reason.match(/Staff Instructions:\s*(.+)$/);
+    const instructions = instrMatch ? instrMatch[1].trim() : null;
+
+    if (!priority && !ward_category && !diagnosis) return null;
+
+    return {
+      priority,
+      ward_category,
+      diagnosis,
+      instructions,
+      doctor_name: recentConsultation.doctor_name,
+      specialization: recentConsultation.specialization,
+      doctor_id: recentConsultation.doctor_id,
+      appointment_id: recentConsultation.appointment_id,
+      appointment_date: recentConsultation.appointment_date,
+    };
+  }, [recentConsultation]);
+
   // 1. Fetch Admissions Table Data
   const fetchAdmissions = useCallback(async () => {
     try {
@@ -231,11 +268,31 @@ const ReceptionistAdmissions = () => {
         setRecentConsultation(consultation || null);
 
         if (consultation) {
-          // AUTOMATICALLY pre-fill without requiring the user to click any button!
+          // Parse admission order if it contains structured doctor order
+          let parsedReason = consultation.reason || 'Doctor ordered in-patient clinical admission';
+          let autoWardId = '';
+
+          // If it's a structured admission order, extract clean diagnosis for the form
+          if (consultation.reason && consultation.reason.includes('[ADMISSION ORDER -')) {
+            const indicationMatch = consultation.reason.match(/Indication:\s*([^|]+)/);
+            if (indicationMatch) parsedReason = indicationMatch[1].trim();
+
+            // Extract ward_category and try to auto-match to a ward
+            const wardCatMatch = consultation.reason.match(/Ward Category:\s*([^|]+)/);
+            if (wardCatMatch) {
+              const wardCat = wardCatMatch[1].trim().toLowerCase();
+              // wardCat will be: general, icu, pediatric, maternity, private
+              // wards have ward_type: General, ICU, Emergency, Maternity, Pediatric, Private, Semi-Private
+              // Note: we will set autoWardId later from the wards list via a flag
+              // Store on consultation object for after wards load
+              consultation._suggestedWardCategory = wardCat;
+            }
+          }
+
           setForm((f) => ({
             ...f,
             doctor_id: consultation.doctor_id ? String(consultation.doctor_id) : f.doctor_id,
-            reason: consultation.reason || f.reason || 'Doctor ordered in-patient clinical admission',
+            reason: parsedReason,
           }));
         }
       } catch (err) {
@@ -248,6 +305,21 @@ const ReceptionistAdmissions = () => {
 
     checkConsultation();
   }, [form.patient_id]);
+
+  // When a structured admission order is parsed and wards are loaded, auto-suggest the ward
+  useEffect(() => {
+    if (!parsedAdmissionOrder?.ward_category || !wards.length || form.ward_id) return;
+    const cat = parsedAdmissionOrder.ward_category.toLowerCase();
+    // Match ward_type case-insensitively
+    const matchedWard = wards.find((w) => {
+      const wType = (w.ward_type || '').toLowerCase();
+      return wType === cat || wType.startsWith(cat.substring(0, 4));
+    });
+    if (matchedWard && matchedWard.available_beds > 0) {
+      setForm((f) => ({ ...f, ward_id: String(matchedWard.ward_id) }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedAdmissionOrder, wards]);
 
   // Open admit modal with pre-selected ward from the visual Bed Map
   const handleAdmitInWard = (wardId) => {
@@ -1353,7 +1425,196 @@ const ReceptionistAdmissions = () => {
                     </div>
                   )}
 
-                  {/* (Autofill occurs silently into doctor_id and reason without visible banner) */}
+                  {/* DOCTOR ADMISSION ORDER DETECTED BANNER */}
+                  {loadingConsultation && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#2563eb' }}>
+                      <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #2563eb', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                      Checking for doctor admission orders...
+                    </div>
+                  )}
+
+                  {!loadingConsultation && parsedAdmissionOrder && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        border: '1.5px solid #a7f3d0',
+                        boxShadow: '0 2px 12px rgba(5, 150, 105, 0.12)'
+                      }}
+                    >
+                      {/* Banner Header */}
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                          padding: '10px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 16 }}>⚡</span>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 13, color: '#ffffff' }}>
+                              Doctor's Inpatient Admission Order Detected
+                            </div>
+                            <div style={{ fontSize: 11, color: '#d1fae5', marginTop: 1 }}>
+                              Form auto-filled from Dr. {parsedAdmissionOrder.doctor_name}'s latest clinical directive
+                            </div>
+                          </div>
+                        </div>
+                        {parsedAdmissionOrder.priority && (
+                          <span
+                            style={{
+                              background:
+                                parsedAdmissionOrder.priority === 'EMERGENCY' ? '#fca5a5' :
+                                parsedAdmissionOrder.priority === 'URGENT' ? '#fde68a' : '#a7f3d0',
+                              color:
+                                parsedAdmissionOrder.priority === 'EMERGENCY' ? '#7f1d1d' :
+                                parsedAdmissionOrder.priority === 'URGENT' ? '#78350f' : '#064e3b',
+                              fontSize: 10,
+                              fontWeight: 800,
+                              padding: '3px 10px',
+                              borderRadius: 20,
+                              textTransform: 'uppercase',
+                              letterSpacing: 0.8,
+                              flexShrink: 0
+                            }}
+                          >
+                            {parsedAdmissionOrder.priority === 'EMERGENCY' ? '🚨' :
+                             parsedAdmissionOrder.priority === 'URGENT' ? '⚠️' : '✅'}{' '}
+                            {parsedAdmissionOrder.priority}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Order Details Grid */}
+                      <div style={{ background: '#f0fdf4', padding: '12px 14px' }}>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '10px 16px',
+                            marginBottom: parsedAdmissionOrder.instructions ? 10 : 0
+                          }}
+                        >
+                          {/* Doctor Info */}
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+                              Ordering Physician
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#064e3b' }}>
+                              Dr. {parsedAdmissionOrder.doctor_name}
+                            </div>
+                            {parsedAdmissionOrder.specialization && (
+                              <div style={{ fontSize: 11, color: '#059669' }}>{parsedAdmissionOrder.specialization}</div>
+                            )}
+                          </div>
+
+                          {/* Recommended Ward */}
+                          {parsedAdmissionOrder.ward_category && (
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+                                Recommended Ward
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span
+                                  style={{
+                                    background: '#dcfce7',
+                                    color: '#15803d',
+                                    border: '1px solid #86efac',
+                                    padding: '2px 10px',
+                                    borderRadius: 12,
+                                    fontSize: 12,
+                                    fontWeight: 800
+                                  }}
+                                >
+                                  {parsedAdmissionOrder.ward_category === 'ICU' ? '⚡ ICU' :
+                                   parsedAdmissionOrder.ward_category === 'Pediatric' ? '🧸 Pediatric' :
+                                   parsedAdmissionOrder.ward_category === 'Maternity' ? '👶 Maternity' :
+                                   parsedAdmissionOrder.ward_category === 'Private' ? '⭐ Private' :
+                                   '🏥 ' + parsedAdmissionOrder.ward_category}
+                                </span>
+                                <span style={{ fontSize: 10.5, color: '#059669', fontStyle: 'italic' }}>
+                                  {form.ward_id ? '✓ Auto-selected' : 'Select below ↓'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Clinical Diagnosis */}
+                        {parsedAdmissionOrder.diagnosis && (
+                          <div style={{ marginBottom: parsedAdmissionOrder.instructions ? 10 : 0 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                              Clinical Diagnosis / Admission Indication
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12.5,
+                                color: '#064e3b',
+                                background: '#dcfce7',
+                                border: '1px solid #bbf7d0',
+                                borderRadius: 6,
+                                padding: '7px 10px',
+                                lineHeight: 1.5,
+                                fontStyle: 'italic'
+                              }}
+                            >
+                              "{parsedAdmissionOrder.diagnosis}"
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Staff Instructions */}
+                        {parsedAdmissionOrder.instructions && (
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                              Initial Ward Staff Instructions
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: '#1e3a8a',
+                                background: '#eff6ff',
+                                border: '1px solid #bfdbfe',
+                                borderRadius: 6,
+                                padding: '7px 10px',
+                                lineHeight: 1.5
+                              }}
+                            >
+                              📋 {parsedAdmissionOrder.instructions}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer note */}
+                      <div
+                        style={{
+                          background: '#ecfdf5',
+                          borderTop: '1px dashed #a7f3d0',
+                          padding: '7px 14px',
+                          fontSize: 11,
+                          color: '#047857',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <span>✓</span>
+                        <span>Doctor, ward, and clinical reason have been auto-filled. Verify and complete ward selection, then click <strong>Admit & Allocate Bed</strong>.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {!loadingConsultation && form.patient_id && !parsedAdmissionOrder && recentConsultation && (
+                    <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', fontStyle: 'italic' }}>
+                      ⚠️ No doctor admission order found. Latest appointment: <strong>{recentConsultation.reason?.substring(0, 60)}...</strong> — Doctor pre-filled.
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. ADMITTING DOCTOR (WHO ORDERED ADMISSION) */}
@@ -1381,8 +1642,23 @@ const ReceptionistAdmissions = () => {
 
                 {/* 4. WARD (DECIDED BY ADMITTING DOCTOR) */}
                 <div className="form-group" style={{ marginBottom: 14 }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
+                  <label className="form-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                     Assigned Ward (As Decided by Doctor) *
+                    {parsedAdmissionOrder?.ward_category && form.ward_id && (
+                      <span
+                        style={{
+                          background: '#dcfce7',
+                          color: '#15803d',
+                          border: '1px solid #86efac',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 20
+                        }}
+                      >
+                        ⚡ Auto-matched to Doctor's Order
+                      </span>
+                    )}
                   </label>
                   <select
                     className="form-control"
@@ -1433,8 +1709,11 @@ const ReceptionistAdmissions = () => {
 
                 {/* 5. CLINICAL REASON FOR ADMISSION */}
                 <div className="form-group" style={{ marginBottom: 14 }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
+                  <label className="form-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                     Doctor's Clinical Admission Reason & Diagnosis *
+                    {parsedAdmissionOrder?.diagnosis && (
+                      <span style={{ fontSize: 10, color: '#059669', fontWeight: 700, background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1px 7px', borderRadius: 12 }}>⚡ Auto-filled from doctor's order</span>
+                    )}
                   </label>
                   <textarea
                     className="form-control"
