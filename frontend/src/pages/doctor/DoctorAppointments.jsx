@@ -144,7 +144,7 @@ const DoctorAppointments = () => {
       <div className="card" style={{ marginBottom: 20, padding: '16px 20px' }}>
         <div style={{ display:'flex', flexWrap:'wrap', gap:14, justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            {['ALL', 'Confirmed', 'Completed', 'Cancelled'].map(s => (
+            {['ALL', 'Confirmed', 'Completed'].map(s => (
               <button
                 key={s}
                 type="button"
@@ -225,4 +225,3 @@ const DoctorAppointments = () => {
 };
 
 export default DoctorAppointments;
-
