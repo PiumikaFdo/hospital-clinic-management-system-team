@@ -777,4 +777,129 @@ router.put('/schedule/:id', authenticateToken, authorizeRoles('doctor', 'admin')
   }
 });
 
+// POST /api/doctor/admission-order (Create doctor's inpatient admission order)
+router.post('/admission-order', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const {
+      patient_id,
+      ward_category, // 'General', 'ICU', 'Pediatric', 'Maternity', 'Private'
+      priority,      // 'Routine', 'Urgent', 'Emergency'
+      reason,        // Clinical admission reason / diagnosis
+      instructions   // Initial instructions for ward staff
+    } = req.body;
+
+    const doctor_id = req.user.staff_id;
+
+    if (!patient_id || !ward_category || !priority || !reason?.trim()) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: 'Patient, ward category, priority, and clinical admission reason are required.'
+      });
+    }
+
+    const validWardCategories = ['General', 'ICU', 'Pediatric', 'Maternity', 'Private'];
+    if (!validWardCategories.includes(ward_category)) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ward category selected.'
+      });
+    }
+
+    const validPriorities = ['Routine', 'Urgent', 'Emergency'];
+    if (!validPriorities.includes(priority)) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid admission priority selected.'
+      });
+    }
+
+    // Build standardized clinical reason string that integrates directly into Receptionist Auto-fill
+    const formattedReason = `[ADMISSION ORDER - ${priority.toUpperCase()}] Ward Category: ${ward_category} | Indication: ${reason.trim()}${instructions?.trim() ? ` | Staff Instructions: ${instructions.trim()}` : ''}`;
+
+    const apptType = priority === 'Emergency' ? 'Emergency' : 'Walk-in';
+
+    // Query top appointment date for this patient to ensure ranking first in receptionist recent consultation query
+    const [[maxRow]] = await connection.query(`
+      SELECT GREATEST(CURDATE(), COALESCE(MAX(appointment_date), CURDATE())) AS top_date
+      FROM appointments
+      WHERE patient_id = ?
+    `, [patient_id]);
+    const orderDate = maxRow?.top_date;
+
+    // 1. Insert appointment record (guarantees GET /receptionist/patients/:id/recent-consultation selects this as the most recent order)
+    const [apptResult] = await connection.query(`
+      INSERT INTO appointments (
+        patient_id, doctor_id, appointment_date, appointment_time,
+        reason, status, appointment_type, notes
+      ) VALUES (?, ?, ?, '23:59:59', ?, 'Confirmed', ?, ?)
+    `, [
+      patient_id,
+      doctor_id,
+      orderDate,
+      formattedReason,
+      apptType,
+      `DOCTOR ADMISSION ORDER\nPriority: ${priority}\nWard Category: ${ward_category}\nDiagnosis: ${reason.trim()}\nStaff Instructions: ${instructions?.trim() || 'Standard ward observation and care'}`
+    ]);
+
+    const appointment_id = apptResult.insertId;
+
+    // 2. Insert into medical_records for permanent clinical history
+    await connection.query(`
+      INSERT INTO medical_records (
+        patient_id, doctor_id, appointment_id,
+        diagnosis, symptoms, treatment_plan, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      patient_id,
+      doctor_id,
+      appointment_id,
+      `Inpatient Admission Order (${priority}): ${reason.trim()}`,
+      `Clinical indication for ${ward_category} Ward admission`,
+      `Admission Ward: ${ward_category} | Priority: ${priority} | Staff Orders: ${instructions?.trim() || 'Standard monitoring'}`,
+      `Admission order placed by attending doctor (Staff #${doctor_id}).`
+    ]);
+
+    // 3. Update patient's medical history summary
+    await connection.query(`
+      UPDATE patients
+      SET medical_history = CONCAT(
+        IF(medical_history IS NULL OR medical_history = '', '', CONCAT(medical_history, ' | ')),
+        ?
+      )
+      WHERE patient_id = ?
+    `, [
+      `[Admission Order - ${new Date().toISOString().split('T')[0]}: ${ward_category} Ward (${priority})]`,
+      patient_id
+    ]);
+
+    await connection.commit();
+    connection.release();
+
+    res.status(201).json({
+      success: true,
+      message: `Doctor's Inpatient Admission Order for ${ward_category} Ward (${priority}) placed successfully! Ready for Receptionist Bed Allocation.`,
+      data: {
+        appointment_id,
+        patient_id,
+        doctor_id,
+        ward_category,
+        priority,
+        reason: formattedReason
+      }
+    });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Error creating doctor admission order:', err);
+    res.status(500).json({ success: false, message: err.sqlMessage || 'Failed to create admission order' });
+  }
+});
+
 module.exports = router;
+

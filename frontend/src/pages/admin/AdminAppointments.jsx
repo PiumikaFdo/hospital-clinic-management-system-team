@@ -15,7 +15,7 @@ const StatusBadge = ({ status }) => {
   } else if (typeof cleanStatus === 'object' && cleanStatus !== null) {
     cleanStatus = cleanStatus.status || JSON.stringify(cleanStatus);
   }
-  const map = { Confirmed:'badge-success', Pending:'badge-warning', Completed:'badge-primary', Cancelled:'badge-danger', No_Show:'badge-gray' };
+  const map = { Confirmed:'badge-success', Completed:'badge-primary' };
   return <span className={`badge ${map[cleanStatus]||'badge-gray'}`}>{cleanStatus}</span>;
 };
 
@@ -53,7 +53,7 @@ const AdminAppointments = () => {
           </div>
           <div><label className="form-label">Status</label>
             <select className="form-control" value={filter.status} onChange={e=>f('status',e.target.value)}>
-              {['ALL','Pending','Confirmed','Completed','Cancelled','No_Show'].map(s=><option key={s}>{s}</option>)}
+              {['ALL','Confirmed','Completed'].map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
         </div>

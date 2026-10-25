@@ -36,6 +36,7 @@ import PharmacyInventory from './pages/pharmacy/PharmacyInventory';
 // Receptionist Pages
 import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 import ReceptionistPatients from './pages/receptionist/ReceptionistPatients';
+import ReceptionistAppointments from './pages/receptionist/ReceptionistAppointments';
 import ReceptionistBilling from './pages/receptionist/ReceptionistBilling';
 import ReceptionistAdmissions from './pages/receptionist/ReceptionistAdmissions';
 
@@ -84,10 +85,11 @@ function App() {
           <Route path="/pharmacy/inventory"     element={<ProtectedRoute roles={['pharmacist']}><PharmacyInventory /></ProtectedRoute>} />
 
           {/* RECEPTIONIST */}
-          <Route path="/receptionist/dashboard"  element={<ProtectedRoute roles={['receptionist']}><ReceptionistDashboard /></ProtectedRoute>} />
-          <Route path="/receptionist/patients"   element={<ProtectedRoute roles={['receptionist']}><ReceptionistPatients /></ProtectedRoute>} />
-          <Route path="/receptionist/billing"    element={<ProtectedRoute roles={['receptionist']}><ReceptionistBilling /></ProtectedRoute>} />
-          <Route path="/receptionist/admissions" element={<ProtectedRoute roles={['receptionist']}><ReceptionistAdmissions /></ProtectedRoute>} />
+          <Route path="/receptionist/dashboard"    element={<ProtectedRoute roles={['receptionist']}><ReceptionistDashboard /></ProtectedRoute>} />
+          <Route path="/receptionist/patients"     element={<ProtectedRoute roles={['receptionist']}><ReceptionistPatients /></ProtectedRoute>} />
+          <Route path="/receptionist/appointments" element={<ProtectedRoute roles={['receptionist']}><ReceptionistAppointments /></ProtectedRoute>} />
+          <Route path="/receptionist/billing"      element={<ProtectedRoute roles={['receptionist']}><ReceptionistBilling /></ProtectedRoute>} />
+          <Route path="/receptionist/admissions"   element={<ProtectedRoute roles={['receptionist']}><ReceptionistAdmissions /></ProtectedRoute>} />
 
           {/* NURSE */}
           <Route path="/nurse/dashboard"   element={<ProtectedRoute roles={['nurse']}><NurseDashboard /></ProtectedRoute>} />

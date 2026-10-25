@@ -5,7 +5,7 @@
 --  Default Password for all seeded accounts: Admin@123
 --  Features: 23 Role-Based Indexes (Minimum 3-4 per role),
 --             15 Views, 15 Stored Procedures, 15 Functions,
---             8 Triggers, Full Transactions, Seed Data
+--             9 Triggers, Full Transactions, Seed Data
 -- ============================================================
 
 DROP DATABASE IF EXISTS hospital_db;
@@ -90,7 +90,7 @@ CREATE TABLE appointments (
     appointment_date DATE NOT NULL,
     appointment_time TIME NOT NULL,
     reason TEXT,
-    status ENUM('Pending','Confirmed','Completed','Cancelled','No_Show') DEFAULT 'Pending',
+    status ENUM('Pending','Confirmed','Completed','Cancelled','No_Show') DEFAULT 'Confirmed',
     appointment_type ENUM('Online','Walk-in','Emergency') DEFAULT 'Online',
     guest_name VARCHAR(100),
     guest_phone VARCHAR(20),
@@ -606,7 +606,7 @@ BEGIN
     SELECT admission_date, COALESCE(discharge_date, NOW())
     INTO admit_date, discharge
     FROM admissions WHERE admission_id = p_admission_id;
-    RETURN DATEDIFF(discharge, admit_date);
+    RETURN GREATEST(1, DATEDIFF(discharge, admit_date));
 END$$
 
 -- FUNCTION 15: Count pending lab tests for a patient
@@ -641,6 +641,7 @@ CREATE PROCEDURE sp_register_staff(
     IN p_dept_id INT,
     IN p_qualification VARCHAR(200),
     IN p_specialization VARCHAR(100),
+    IN p_experience_years INT,
     IN p_joining_date DATE,
     IN p_salary DECIMAL(10,2),
     OUT p_new_user_id INT,
@@ -658,8 +659,8 @@ BEGIN
     VALUES(p_username,p_email,p_password_hash,p_role,p_first_name,p_last_name,p_phone,p_gender,p_dob);
     SET p_new_user_id = LAST_INSERT_ID();
     SET v_emp_id = CONCAT(UPPER(LEFT(p_role,3)), LPAD(p_new_user_id, 5, '0'));
-    INSERT INTO staff(user_id,dept_id,employee_id,qualification,specialization,joining_date,salary)
-    VALUES(p_new_user_id,p_dept_id,v_emp_id,p_qualification,p_specialization,p_joining_date,p_salary);
+    INSERT INTO staff(user_id,dept_id,employee_id,qualification,specialization,experience_years,joining_date,salary)
+    VALUES(p_new_user_id,p_dept_id,v_emp_id,p_qualification,p_specialization,COALESCE(p_experience_years, 0),p_joining_date,p_salary);
     SET p_new_staff_id = LAST_INSERT_ID();
     COMMIT;
 END$$
@@ -976,8 +977,8 @@ BEGIN
     VALUES(v_user_id, v_patient_code, p_blood_group);
     SET p_patient_id = LAST_INSERT_ID();
 
-    INSERT INTO appointments(patient_id, doctor_id, appointment_date, appointment_time, reason, appointment_type)
-    VALUES(p_patient_id, p_doctor_id, p_appt_date, p_appt_time, p_reason, 'Walk-in');
+    INSERT INTO appointments(patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type)
+    VALUES(p_patient_id, p_doctor_id, p_appt_date, p_appt_time, p_reason, 'Confirmed', 'Walk-in');
     SET p_appointment_id = LAST_INSERT_ID();
     COMMIT;
 END$$
@@ -1047,8 +1048,6 @@ CREATE PROCEDURE sp_process_payment(
     IN p_received_by INT
 )
 BEGIN
-    DECLARE v_total DECIMAL(10,2);
-    DECLARE v_paid DECIMAL(10,2);
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
@@ -1056,21 +1055,8 @@ BEGIN
     END;
 
     START TRANSACTION;
-    SELECT total_amount, paid_amount INTO v_total, v_paid
-    FROM bills WHERE bill_id = p_bill_id FOR UPDATE;
-
     INSERT INTO payments(bill_id, amount, payment_method, transaction_reference, received_by)
     VALUES(p_bill_id, p_amount, p_payment_method, p_transaction_ref, p_received_by);
-
-    UPDATE bills SET
-        paid_amount    = paid_amount + p_amount,
-        balance_amount = total_amount - (paid_amount + p_amount),
-        payment_status = CASE
-            WHEN total_amount <= (v_paid + p_amount) THEN 'Paid'
-            WHEN (v_paid + p_amount) > 0              THEN 'Partial'
-            ELSE 'Pending'
-        END
-    WHERE bill_id = p_bill_id;
     COMMIT;
 END$$
 
@@ -1155,6 +1141,82 @@ BEGIN
     COMMIT;
 END$$
 
+-- PROCEDURE 16: Appointment analytics grouped by weekdays (Monday to Sunday)
+CREATE PROCEDURE sp_appointments_by_weekday()
+BEGIN
+    SELECT 
+        d.day_index,
+        d.day_name,
+        d.short_name,
+        COUNT(a.appointment_id) AS total_appointments,
+        SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed,
+        SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN a.appointment_type = 'Online' THEN 1 ELSE 0 END) AS online_count,
+        SUM(CASE WHEN a.appointment_type = 'Walk-in' THEN 1 ELSE 0 END) AS walkin_count,
+        SUM(CASE WHEN a.appointment_type = 'Emergency' THEN 1 ELSE 0 END) AS emergency_count
+    FROM (
+        SELECT 1 AS day_index, 'Monday' AS day_name, 'Mon' AS short_name UNION ALL
+        SELECT 2, 'Tuesday', 'Tue' UNION ALL
+        SELECT 3, 'Wednesday', 'Wed' UNION ALL
+        SELECT 4, 'Thursday', 'Thu' UNION ALL
+        SELECT 5, 'Friday', 'Fri' UNION ALL
+        SELECT 6, 'Saturday', 'Sat' UNION ALL
+        SELECT 7, 'Sunday', 'Sun'
+    ) d
+    LEFT JOIN appointments a ON DAYNAME(a.appointment_date) = d.day_name
+    GROUP BY d.day_index, d.day_name, d.short_name
+    ORDER BY d.day_index;
+END$$
+
+-- PROCEDURE 17: Summary of appointments for each doctor separately
+CREATE PROCEDURE sp_appointment_summary_by_doctor()
+BEGIN
+    SELECT 
+        s.staff_id AS doctor_id,
+        CONCAT(u.first_name, ' ', u.last_name) AS doctor_name,
+        u.email AS doctor_email,
+        u.phone AS doctor_phone,
+        d.dept_name,
+        s.specialization,
+        COUNT(a.appointment_id) AS total_appointments,
+        SUM(CASE WHEN a.appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_appointments,
+        SUM(CASE WHEN a.status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
+        SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
+        ROUND(
+            COALESCE(
+                SUM(CASE WHEN a.status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(a.appointment_id), 0),
+                0
+            ), 1
+        ) AS completion_rate
+    FROM staff s
+    JOIN users u ON s.user_id = u.user_id
+    LEFT JOIN departments d ON s.dept_id = d.dept_id
+    LEFT JOIN appointments a ON s.staff_id = a.doctor_id
+    WHERE u.role = 'Doctor'
+    GROUP BY s.staff_id, u.first_name, u.last_name, u.email, u.phone, d.dept_name, s.specialization
+    ORDER BY total_appointments DESC, doctor_name ASC;
+END$$
+
+-- PROCEDURE 18: Overall summary of appointments across all doctors
+CREATE PROCEDURE sp_appointment_summary_overall()
+BEGIN
+    SELECT 
+        COUNT(*) AS total_appointments,
+        SUM(CASE WHEN appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_appointments,
+        SUM(CASE WHEN appointment_date > CURDATE() THEN 1 ELSE 0 END) AS future_appointments,
+        SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed_appointments,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed_appointments,
+        COUNT(DISTINCT doctor_id) AS total_doctors_scheduled,
+        COUNT(DISTINCT patient_id) AS total_patients_scheduled,
+        ROUND(
+            COALESCE(
+                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+                0
+            ), 1
+        ) AS overall_completion_rate
+    FROM appointments;
+END$$
+
 -- ============================================================
 -- 5. VIEWS (3 per role = 15 total)
 -- ============================================================
@@ -1189,6 +1251,7 @@ SELECT
     SUM(CASE WHEN a.status='Completed' THEN 1 ELSE 0 END)                      AS completed,
     SUM(CASE WHEN a.status='Pending'   THEN 1 ELSE 0 END)                      AS pending,
     SUM(CASE WHEN a.status='Cancelled' THEN 1 ELSE 0 END)                      AS cancelled
+    SUM(CASE WHEN a.status='Confirmed' THEN 1 ELSE 0 END)                      AS confirmed
 FROM departments d
 LEFT JOIN staff s ON d.dept_id = s.dept_id
 LEFT JOIN appointments a ON s.staff_id = a.doctor_id
@@ -1329,7 +1392,7 @@ FROM patients p JOIN users u ON p.user_id = u.user_id$$
 CREATE VIEW vw_current_admissions AS
 SELECT
     ad.admission_id, ad.admission_date, ad.reason_for_admission, ad.status,
-    DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date) AS days_admitted,
+    GREATEST(1, DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date)) AS days_admitted,
     p.patient_id, p.patient_code, p.blood_group,
     CONCAT(pu.first_name,' ',pu.last_name) AS patient_name, pu.phone,
     w.ward_name, w.ward_type, b.bed_number,
@@ -1374,7 +1437,7 @@ LEFT JOIN staff ns ON w.nurse_in_charge = ns.staff_id
 LEFT JOIN users nu ON ns.user_id = nu.user_id$$
 
 -- ============================================================
--- 6. TRIGGERS (8 total)
+-- 6. TRIGGERS (9 total)
 -- ============================================================
 
 -- TRIGGER 1: Prevent double-booking (BEFORE INSERT on appointments)
@@ -1441,12 +1504,15 @@ CREATE TRIGGER trg_after_payment_insert
 AFTER INSERT ON payments
 FOR EACH ROW
 BEGIN
+    DECLARE v_total_paid DECIMAL(10,2);
+    SELECT COALESCE(SUM(amount), 0) INTO v_total_paid FROM payments WHERE bill_id = NEW.bill_id;
+
     UPDATE bills SET
-        paid_amount    = paid_amount + NEW.amount,
-        balance_amount = total_amount - (paid_amount + NEW.amount),
+        paid_amount    = v_total_paid,
+        balance_amount = GREATEST(0, total_amount - v_total_paid),
         payment_status = CASE
-            WHEN total_amount <= (paid_amount + NEW.amount) THEN 'Paid'
-            WHEN (paid_amount + NEW.amount) > 0             THEN 'Partial'
+            WHEN total_amount <= v_total_paid THEN 'Paid'
+            WHEN v_total_paid > 0             THEN 'Partial'
             ELSE 'Pending'
         END
     WHERE bill_id = NEW.bill_id;
@@ -1476,6 +1542,22 @@ BEGIN
                JSON_OBJECT('stock', OLD.stock_quantity),
                JSON_OBJECT('stock', NEW.stock_quantity, 'reorder_level', NEW.reorder_level));
     END IF;
+END$$
+
+-- TRIGGER 9: Set staff salary based on role (BEFORE INSERT on staff)
+CREATE TRIGGER trg_before_staff_insert
+BEFORE INSERT ON staff
+FOR EACH ROW
+BEGIN
+    DECLARE v_role VARCHAR(20);
+    SELECT role INTO v_role FROM users WHERE user_id = NEW.user_id;
+    SET NEW.salary = CASE v_role
+        WHEN 'doctor' THEN 150000
+        WHEN 'nurse' THEN 75000
+        WHEN 'receptionist' THEN 65000
+        WHEN 'pharmacist' THEN 100000
+        ELSE NEW.salary
+    END;
 END$$
 
 DELIMITER ;
@@ -1642,9 +1724,9 @@ INSERT INTO lab_tests (test_name, category, description, normal_range, unit, pri
 -- Sample Appointments
 INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type) VALUES
 (1, 2, CURDATE(), '09:00:00', 'Chest pain and shortness of breath', 'Confirmed', 'Online'),
-(2, 3, CURDATE(), '08:00:00', 'Skin rash and itching',              'Pending',   'Walk-in'),
+(2, 3, CURDATE(), '08:00:00', 'Skin rash and itching',              'Confirmed', 'Walk-in'),
 (3, 6, CURDATE(), '10:00:00', 'Fever and headache',                 'Confirmed', 'Online'),
-(1, 6, DATE_ADD(CURDATE(), INTERVAL 2 DAY), '11:00:00', 'Follow-up visit',       'Pending', 'Online'),
+(1, 6, DATE_ADD(CURDATE(), INTERVAL 2 DAY), '11:00:00', 'Follow-up visit',       'Confirmed', 'Online'),
 (2, 2, DATE_ADD(CURDATE(), INTERVAL 1 DAY), '14:00:00', 'Hypertension checkup',  'Confirmed','Online');
 
 -- ============================================================
