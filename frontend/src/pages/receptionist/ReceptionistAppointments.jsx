@@ -9,6 +9,7 @@ import {
   Clock,
   User,
   Users,
+  UserCheck,
   Search,
   Plus,
   RefreshCw,

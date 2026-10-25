@@ -9,13 +9,7 @@ import {
   KeyRound,
   Eye,
   EyeOff,
-  Users,
-  Stethoscope,
-  Pill,
-  HeartPulse,
-  Building2,
   ArrowRight,
-  Shield,
   FileCheck2,
   CheckCircle2,
   AlertCircle
@@ -31,23 +25,12 @@ const ROLE_REDIRECTS = {
   patient:      '/patient/dashboard',
 };
 
-const DEMO_ACCOUNTS = [
-  { role: 'Admin',        email: 'admin@hospital.com',        password: 'password', icon: Shield,       color: 'blue' },
-  { role: 'Doctor',       email: 'dr.silva@hospital.com',     password: 'password', icon: Stethoscope,  color: 'teal' },
-  { role: 'Pharmacist',   email: 'pharmacist@hospital.com',   password: 'password', icon: Pill,         color: 'amber' },
-  { role: 'Receptionist', email: 'receptionist@hospital.com', password: 'password', icon: Building2,    color: 'purple' },
-  { role: 'Nurse',        email: 'nurse@hospital.com',        password: 'password', icon: HeartPulse,   color: 'red' },
-  { role: 'Patient',      email: 'john@email.com',            password: 'password', icon: Users,        color: 'emerald' },
-];
-
 const LoginPage = () => {
   const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
-  const [selectedDemo, setSelectedDemo] = useState(null);
-
   const { login } = useAuth();
   const navigate  = useNavigate();
 
@@ -66,13 +49,6 @@ const LoginPage = () => {
     } else {
       setError(result?.message || 'Authentication failed. Please verify credentials.');
     }
-  };
-
-  const handleSelectDemo = (acc) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setSelectedDemo(acc.role);
-    setError('');
   };
 
   return (
@@ -217,36 +193,6 @@ const LoginPage = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Role Accounts Selection */}
-          <div className="demo-accounts-box">
-            <div className="demo-accounts-header">
-              <span>Quick Role Access</span>
-            </div>
-
-            <div className="demo-buttons-grid">
-              {DEMO_ACCOUNTS.map((acc) => {
-                const IconComponent = acc.icon;
-                const isSelected = selectedDemo === acc.role;
-                return (
-                  <button
-                    key={acc.role}
-                    type="button"
-                    onClick={() => handleSelectDemo(acc)}
-                    className={`demo-role-btn ${isSelected ? 'active' : ''}`}
-                  >
-                    <div className={`demo-role-icon ${acc.color}`}>
-                      <IconComponent size={14} />
-                    </div>
-                    <div className="demo-role-text">
-                      <span className="demo-role-name">{acc.role}</span>
-                      <span className="demo-role-email">{acc.email.split('@')[0]}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
           <div className="login-footer-links">
             <Link to="/" className="link-back-home">
