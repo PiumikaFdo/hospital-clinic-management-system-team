@@ -18,7 +18,8 @@ import {
   Activity,
   Shield,
   Stethoscope,
-  HeartPulse
+  HeartPulse,
+  CalendarClock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -51,9 +52,11 @@ const NAV_CONFIGS = {
     { 
       section: 'Clinical Care', 
       items: [
-        { to: '/doctor/appointments',  icon: CalendarCheck, label: 'My Consultations' },
-        { to: '/doctor/patients',      icon: Users,         label: 'Assigned Patients' },
-        { to: '/doctor/prescriptions', icon: FileText,      label: 'e-Prescriptions' },
+        { to: '/doctor/consultations',  icon: Stethoscope,     label: 'Consultations' },
+        { to: '/doctor/follow-ups',     icon: CalendarClock,   label: 'Follow-up Management' },
+        { to: '/doctor/appointments',   icon: CalendarCheck,   label: 'Appointments Queue' },
+        { to: '/doctor/patients',       icon: Users,           label: 'Assigned Patients' },
+        { to: '/doctor/prescriptions',  icon: FileText,        label: 'e-Prescriptions' },
       ]
     },
   ],
