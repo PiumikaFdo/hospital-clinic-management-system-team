@@ -213,9 +213,28 @@ router.get('/', authenticateToken, async (req, res) => {
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
-    if (!['Confirmed', 'Completed'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Appointment status must be Confirmed or Completed' });
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
     }
+
+    // Role-based validation: Doctors can only transition status to 'Confirmed' or 'Completed'
+    if (req.user.role === 'doctor') {
+      if (!['Confirmed', 'Completed'].includes(status)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Doctors can only change appointment status to Confirmed or Completed'
+        });
+      }
+      const [result] = await pool.query(
+        'UPDATE appointments SET status=? WHERE appointment_id=? AND doctor_id=?',
+        [status, req.params.id, req.user.staff_id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Appointment not found or unauthorized' });
+      }
+      return res.json({ success: true, message: `Appointment status updated to ${status}` });
+    }
+
     await pool.query('UPDATE appointments SET status=? WHERE appointment_id=?', [status, req.params.id]);
     if (req.user && req.user.user_id) {
       await pool.query(
@@ -225,6 +244,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     }
     res.json({ success: true, message: 'Appointment status updated' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
