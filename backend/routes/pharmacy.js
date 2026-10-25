@@ -262,7 +262,7 @@ router.get('/medicines', authenticateToken, authorizeRoles('pharmacist', 'admin'
   try {
     const { stock_status, category, search, active_filter } = req.query;
     
-    let query = 
+    let query = `
       SELECT * FROM (
         SELECT m.*,
                CASE
@@ -275,7 +275,7 @@ router.get('/medicines', authenticateToken, authorizeRoles('pharmacist', 'admin'
         FROM medicines m
       ) AS inv
       WHERE 1=1
-    ;
+    `;
     const params = [];
 
     if (active_filter === 'archived') {
