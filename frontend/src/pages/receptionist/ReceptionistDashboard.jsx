@@ -790,7 +790,7 @@ const ReceptionistDashboard = () => {
                         {b.patient_name}
                       </div>
                       <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>
-                        Invoice #{b.bill_id} · {new Date(b.bill_date).toLocaleDateString()}
+                        Invoice {b.bill_id} · {new Date(b.bill_date).toLocaleDateString()}
                       </div>
                     </div>
 

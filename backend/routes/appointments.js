@@ -106,7 +106,7 @@ router.post('/', authenticateToken, authorizeRoles('receptionist', 'admin', 'doc
       appointment_date,
       appointment_time,
       reason,
-      appointment_type = 'In-Person',
+      appointment_type = 'Walk-in',
       status = 'Confirmed'
     } = req.body;
 
@@ -128,6 +128,12 @@ router.post('/', authenticateToken, authorizeRoles('receptionist', 'admin', 'doc
       return res.status(404).json({ success: false, message: 'Patient not found' });
     }
 
+    const normalizedAppointmentType = appointment_type === 'In-Person'
+      ? 'Walk-in'
+      : ['Online', 'Walk-in', 'Emergency'].includes(appointment_type)
+      ? appointment_type
+      : 'Walk-in';
+
     // Insert appointment
     const [result] = await pool.query(
       `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type)
@@ -139,7 +145,7 @@ router.post('/', authenticateToken, authorizeRoles('receptionist', 'admin', 'doc
         appointment_time,
         reason || 'General Clinical Consultation',
         status,
-        appointment_type
+        normalizedAppointmentType
       ]
     );
 

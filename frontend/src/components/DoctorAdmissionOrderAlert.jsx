@@ -30,12 +30,27 @@ const DoctorAdmissionOrderAlert = () => {
   const [animateIn, setAnimateIn] = useState(false);
   const [selectedOrderIndex, setSelectedOrderIndex] = useState(0);
   const prevCountRef = useRef(0);
+  const dismissedPatientsKey = 'receptionist-dismissed-admission-orders';
+
+  const getDismissedPatients = () => {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(dismissedPatientsKey) || '[]').map(String));
+    } catch (err) {
+      console.warn('Could not read dismissed admission notifications:', err);
+      return new Set();
+    }
+  };
+
+  const saveDismissedPatients = patients => {
+    sessionStorage.setItem(dismissedPatientsKey, JSON.stringify([...patients]));
+  };
 
   const fetchPendingOrders = useCallback(async () => {
     try {
       setLoading(true);
       const res = await API.get('/receptionist/pending-admission-orders');
-      const newOrders = res.data?.data || [];
+      const dismissedPatients = getDismissedPatients();
+      const newOrders = (res.data?.data || []).filter(order => !dismissedPatients.has(String(order.patient_id)));
 
       if (newOrders.length > prevCountRef.current) {
         setDismissed(false);
@@ -86,6 +101,9 @@ const DoctorAdmissionOrderAlert = () => {
   };
 
   const handleAdmitNow = (order) => {
+    const dismissedPatients = getDismissedPatients();
+    dismissedPatients.add(String(order.patient_id));
+    saveDismissedPatients(dismissedPatients);
     navigate(`/receptionist/admissions?patient_id=${order.patient_id}`);
     handleDismiss();
   };
