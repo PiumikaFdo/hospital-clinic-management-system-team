@@ -3,6 +3,24 @@ const router = express.Router();
 const pool = require('../config/db');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
+// GET /api/appointments/public/patients  (PUBLIC - for validating patient_id & registered name)
+router.get('/public/patients', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.patient_id, p.patient_code,
+              TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS full_name,
+              u.email, u.phone
+       FROM patients p
+       JOIN users u ON p.user_id = u.user_id
+       WHERE u.is_active = 1
+       ORDER BY p.patient_id`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // GET /api/appointments/public/doctors?dept_id=3  (PUBLIC - for booking form)
 router.get('/public/doctors', async (req, res) => {
   try {
@@ -81,16 +99,121 @@ router.get('/public/slots', async (req, res) => {
   }
 });
 
-// POST /api/appointments/public/book  (PUBLIC - guest booking without login)
+// POST /api/appointments/public/book  (PUBLIC - guest booking without prior portal registration)
 router.post('/public/book', async (req, res) => {
   try {
-    const { guest_name, guest_phone, guest_email, doctor_id, appointment_date, appointment_time, reason } = req.body;
-    const [result] = await pool.query(
-      `INSERT INTO appointments (doctor_id, appointment_date, appointment_time, reason, appointment_type, guest_name, guest_phone, guest_email)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [doctor_id, appointment_date, appointment_time, reason, 'Online', guest_name, guest_phone, guest_email]
+    const { patient_id, guest_name, guest_phone, guest_email, doctor_id, appointment_date, appointment_time, reason } = req.body;
+
+    const cleanName   = String(guest_name || '').trim().replace(/\s+/g, ' ');
+    const cleanPhone  = String(guest_phone || '').replace(/[\s-]/g, '');
+    const cleanEmail  = String(guest_email || '').trim();
+    const cleanReason = String(reason || '').trim();
+
+    if (!doctor_id || !appointment_date || !appointment_time) {
+      return res.status(400).json({ success: false, message: 'Doctor, appointment date, and time slot are required.' });
+    }
+    if (!cleanName || cleanName.length < 3 || cleanName.length > 100 || !/^[A-Za-z\s.'-]+$/.test(cleanName)) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid patient full name (3–100 letters).' });
+    }
+    if (!/^(?:07\d{8}|\+947\d{8})$/.test(cleanPhone)) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid 10-digit Sri Lankan mobile number (e.g. 0771234567).' });
+    }
+    if (cleanEmail && (cleanEmail.length > 100 || !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail))) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
+    }
+    if (!cleanReason || cleanReason.length < 5 || cleanReason.length > 500) {
+      return res.status(400).json({ success: false, message: 'Please provide a consultation reason / symptoms (5–500 characters).' });
+    }
+
+    // Check if patient already exists in patients table
+    const [patients] = await pool.query(
+      `SELECT p.patient_id, p.patient_code,
+              TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS full_name,
+              u.email, u.phone
+       FROM patients p
+       JOIN users u ON p.user_id = u.user_id`
     );
-    res.status(201).json({ success: true, message: 'Appointment booked successfully!', appointment_id: result.insertId });
+
+    const byId    = patient_id ? patients.find(p => Number(p.patient_id) === Number(patient_id)) : null;
+    const byEmail = cleanEmail ? patients.find(p => (p.email || '').toLowerCase() === cleanEmail.toLowerCase()) : null;
+    const byPhone = patients.find(p => (p.phone || '').replace(/[\s-]/g, '') === cleanPhone);
+    const byName  = patients.find(p => (p.full_name || '').toLowerCase() === cleanName.toLowerCase());
+
+    // If email or phone matches an existing patient_id, ensure the entered name belongs to that patient_id
+    if (byEmail && byEmail.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `Patient name "${cleanName}" does not match the registered name "${byEmail.full_name}" for Patient ID #${byEmail.patient_id} (${byEmail.email}).`
+      });
+    }
+    if (byPhone && byPhone.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `Patient name "${cleanName}" does not match the registered name "${byPhone.full_name}" for Patient ID #${byPhone.patient_id}.`
+      });
+    }
+    if (byId && byId.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `Patient name "${cleanName}" does not match the registered name "${byId.full_name}" for Patient ID #${byId.patient_id}.`
+      });
+    }
+
+    let matchedPatient = byId || byEmail || byPhone || byName;
+
+    // If the patient was not registered beforehand, automatically create a patient record so patient_id is populated
+    if (!matchedPatient) {
+      const nameParts = cleanName.split(' ');
+      const firstName = nameParts[0];
+      const lastName  = nameParts.slice(1).join(' ') || '';
+      const suffix    = `${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 90 + 10)}`;
+      const username  = `${firstName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'patient'}_${suffix}`;
+      const emailToUse = cleanEmail || `${username}@guest.medicare.local`;
+      const defaultHash = '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+
+      const [userRes] = await pool.query(
+        `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone)
+         VALUES (?, ?, ?, 'patient', ?, ?, ?)`,
+        [username, emailToUse, defaultHash, firstName, lastName, cleanPhone]
+      );
+      const newUserId = userRes.insertId;
+      const patientCode = `PAT${String(newUserId).padStart(6, '0')}`;
+      const [patRes] = await pool.query(
+        `INSERT INTO patients (user_id, patient_code) VALUES (?, ?)`,
+        [newUserId, patientCode]
+      );
+
+      matchedPatient = {
+        patient_id: patRes.insertId,
+        patient_code: patientCode,
+        full_name: cleanName,
+        email: cleanEmail || null,
+        phone: cleanPhone
+      };
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, appointment_type, guest_name, guest_phone, guest_email)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        matchedPatient.patient_id,
+        doctor_id,
+        appointment_date,
+        appointment_time,
+        cleanReason,
+        'Online',
+        matchedPatient.full_name,
+        cleanPhone,
+        cleanEmail || matchedPatient.email || null
+      ]
+    );
+    res.status(201).json({
+      success: true,
+      message: 'Appointment booked successfully!',
+      appointment_id: result.insertId,
+      patient_id: matchedPatient.patient_id,
+      patient_name: matchedPatient.full_name
+    });
   } catch (err) {
     const msg = err.sqlMessage || 'Could not book appointment';
     res.status(400).json({ success: false, message: msg });

@@ -2532,3 +2532,27 @@ h1, h2, h3, h4, h5, h6 {
   border-top: 1px solid var(--slate-100);
   background: var(--slate-50);
 }
+
+
+/* ============================================================
+   FORM FIELD VALIDATION STATES
+   ============================================================ */
+.form-control.input-error {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.form-control.input-error:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.field-error-msg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #dc2626;
+}
