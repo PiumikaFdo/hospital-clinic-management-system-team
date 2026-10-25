@@ -32,11 +32,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Account is deactivated. Contact admin.' });
     }
 
-    let isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid && (password === 'Admin@123' || password === 'password')) {
-      const fallbackMatches = (await bcrypt.compare('password', user.password_hash)) || (await bcrypt.compare('Admin@123', user.password_hash));
-      if (fallbackMatches) isValid = true;
-    }
+    const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -141,16 +137,27 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.post('/change-password', authenticateToken, async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
+    if (typeof current_password !== 'string' || typeof new_password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Current and new passwords are required' });
+    }
+    if (new_password.length < 8 || Buffer.byteLength(new_password, 'utf8') > 72) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 8 characters and no more than 72 bytes' });
+    }
+    if (current_password === new_password) {
+      return res.status(400).json({ success: false, message: 'New password must be different from the current password' });
+    }
+
     const [users] = await pool.query('SELECT password_hash FROM users WHERE user_id = ?', [req.user.user_id]);
     if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
 
     const isValid = await bcrypt.compare(current_password, users[0].password_hash);
-    if (!isValid) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    if (!isValid) return res.status(400).json({ success: false, message: 'Current password is incorrect' });
 
     const newHash = await bcrypt.hash(new_password, 10);
     await pool.query('UPDATE users SET password_hash = ? WHERE user_id = ?', [newHash, req.user.user_id]);
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) {
+    console.error('Change password error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

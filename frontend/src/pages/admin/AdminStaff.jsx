@@ -4,6 +4,12 @@ import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 
 const ROLES = ['doctor','pharmacist','receptionist','nurse'];
+const ROLE_SALARIES = {
+  doctor: 150000,
+  nurse: 75000,
+  receptionist: 65000,
+  pharmacist: 100000
+};
 
 const AdminStaff = () => {
   const [staff, setStaff]   = useState([]);
@@ -14,7 +20,7 @@ const AdminStaff = () => {
   const defaultForm = {
     username:'', email:'', password:'Admin@123', role:'doctor', first_name:'', last_name:'',
     phone:'', gender:'Male', date_of_birth:'', dept_id:'', qualification:'', specialization:'',
-    experience_years: '', joining_date: new Date().toISOString().split('T')[0], salary:''
+    experience_years: '', joining_date: new Date().toISOString().split('T')[0], salary: ROLE_SALARIES.doctor
   };
 
   const [form, setForm] = useState(defaultForm);
@@ -35,7 +41,11 @@ const AdminStaff = () => {
 
   useEffect(() => { load(); }, [filter]);
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k, v) => setForm(f => ({
+    ...f,
+    [k]: v,
+    ...(k === 'role' ? { salary: ROLE_SALARIES[v] } : {})
+  }));
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -170,9 +180,9 @@ const AdminStaff = () => {
                   </div>
                   <div className="form-group"><label className="form-label">Date of Birth</label><input className="form-control" type="date" value={form.date_of_birth} onChange={e=>set('date_of_birth',e.target.value)} /></div>
                   <div className="form-group">
-                    <label className="form-label">Department</label>
+                    <label className="form-label">Department (Optional)</label>
                     <select className="form-control" value={form.dept_id} onChange={e=>set('dept_id',e.target.value)}>
-                      <option value="">Select Dept.</option>
+                      <option value="">No department</option>
                       {depts.map(d=><option key={d.dept_id} value={d.dept_id}>{d.dept_name}</option>)}
                     </select>
                   </div>
@@ -190,7 +200,7 @@ const AdminStaff = () => {
                     />
                   </div>
                   <div className="form-group"><label className="form-label">Joining Date</label><input className="form-control" type="date" value={form.joining_date} onChange={e=>set('joining_date',e.target.value)} /></div>
-                  <div className="form-group"><label className="form-label">Salary (Rs.)</label><input className="form-control" type="number" value={form.salary} onChange={e=>set('salary',e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Monthly Salary (Rs.)</label><input className="form-control" type="number" value={form.salary} readOnly /></div>
                 </div>
                 <div style={{ display:'flex', gap:12, justifyContent:'flex-end', marginTop:8 }}>
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>

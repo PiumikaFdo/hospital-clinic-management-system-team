@@ -13,10 +13,10 @@ const AdminSchedules = () => {
 
   const defaultScheduleForm = {
     doctor_id: '',
-    day_of_week: 'Monday',
-    start_time: '09:00',
-    end_time: '17:00',
-    max_appointments: 20,
+    day_of_week: '',
+    start_time: '',
+    end_time: '',
+    max_appointments: '',
     is_available: true
   };
   const [scheduleForm, setScheduleForm] = useState(defaultScheduleForm);
@@ -39,12 +39,8 @@ const AdminSchedules = () => {
 
   const handleOpenScheduleModal = (doctor = null) => {
     setScheduleForm({
-      doctor_id: doctor ? String(doctor.doctor_id) : (doctors[0] ? String(doctors[0].staff_id) : ''),
-      day_of_week: 'Monday',
-      start_time: '09:00',
-      end_time: '17:00',
-      max_appointments: 20,
-      is_available: true
+      ...defaultScheduleForm,
+      doctor_id: doctor ? String(doctor.doctor_id) : ''
     });
     setShowScheduleModal(true);
   };
@@ -157,6 +153,7 @@ const AdminSchedules = () => {
                       onChange={e => setScheduleForm(f => ({ ...f, day_of_week: e.target.value }))}
                       required
                     >
+                      <option value="">Select Day</option>
                       {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => (
                         <option key={d} value={d}>{d}</option>
                       ))}

@@ -26,6 +26,7 @@ import DoctorDashboard from './pages/doctor/DoctorDashboard';
 import DoctorAppointments from './pages/doctor/DoctorAppointments';
 import DoctorPatients from './pages/doctor/DoctorPatients';
 import DoctorPrescriptions from './pages/doctor/DoctorPrescriptions';
+import DoctorFollowUps from './pages/doctor/DoctorFollowUps';
 
 // Pharmacist Pages
 import PharmacyDashboard from './pages/pharmacy/PharmacyDashboard';
@@ -35,6 +36,7 @@ import PharmacyInventory from './pages/pharmacy/PharmacyInventory';
 // Receptionist Pages
 import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 import ReceptionistPatients from './pages/receptionist/ReceptionistPatients';
+import ReceptionistAppointments from './pages/receptionist/ReceptionistAppointments';
 import ReceptionistBilling from './pages/receptionist/ReceptionistBilling';
 import ReceptionistAdmissions from './pages/receptionist/ReceptionistAdmissions';
 
@@ -71,6 +73,8 @@ function App() {
 
           {/* DOCTOR */}
           <Route path="/doctor/dashboard"     element={<ProtectedRoute roles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
+          <Route path="/doctor/consultations" element={<ProtectedRoute roles={['doctor']}><DoctorDashboard initialTab="consultations" /></ProtectedRoute>} />
+          <Route path="/doctor/follow-ups"    element={<ProtectedRoute roles={['doctor']}><DoctorFollowUps /></ProtectedRoute>} />
           <Route path="/doctor/appointments"  element={<ProtectedRoute roles={['doctor']}><DoctorAppointments /></ProtectedRoute>} />
           <Route path="/doctor/patients"      element={<ProtectedRoute roles={['doctor']}><DoctorPatients /></ProtectedRoute>} />
           <Route path="/doctor/prescriptions" element={<ProtectedRoute roles={['doctor']}><DoctorPrescriptions /></ProtectedRoute>} />
@@ -81,10 +85,11 @@ function App() {
           <Route path="/pharmacy/inventory"     element={<ProtectedRoute roles={['pharmacist']}><PharmacyInventory /></ProtectedRoute>} />
 
           {/* RECEPTIONIST */}
-          <Route path="/receptionist/dashboard"  element={<ProtectedRoute roles={['receptionist']}><ReceptionistDashboard /></ProtectedRoute>} />
-          <Route path="/receptionist/patients"   element={<ProtectedRoute roles={['receptionist']}><ReceptionistPatients /></ProtectedRoute>} />
-          <Route path="/receptionist/billing"    element={<ProtectedRoute roles={['receptionist']}><ReceptionistBilling /></ProtectedRoute>} />
-          <Route path="/receptionist/admissions" element={<ProtectedRoute roles={['receptionist']}><ReceptionistAdmissions /></ProtectedRoute>} />
+          <Route path="/receptionist/dashboard"    element={<ProtectedRoute roles={['receptionist']}><ReceptionistDashboard /></ProtectedRoute>} />
+          <Route path="/receptionist/patients"     element={<ProtectedRoute roles={['receptionist']}><ReceptionistPatients /></ProtectedRoute>} />
+          <Route path="/receptionist/appointments" element={<ProtectedRoute roles={['receptionist']}><ReceptionistAppointments /></ProtectedRoute>} />
+          <Route path="/receptionist/billing"      element={<ProtectedRoute roles={['receptionist']}><ReceptionistBilling /></ProtectedRoute>} />
+          <Route path="/receptionist/admissions"   element={<ProtectedRoute roles={['receptionist']}><ReceptionistAdmissions /></ProtectedRoute>} />
 
           {/* NURSE */}
           <Route path="/nurse/dashboard"   element={<ProtectedRoute roles={['nurse']}><NurseDashboard /></ProtectedRoute>} />
