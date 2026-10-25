@@ -3394,6 +3394,24 @@ h1, h2, h3, h4, h5, h6 {
   border-color: #a7f3d0;
 }
 
+.table-action-btn.btn-stock:hover {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-color: #bbf7d0;
+}
+
+.table-action-btn.btn-waste:hover {
+  background: #fffbeb;
+  color: #d97706;
+  border-color: #fde68a;
+}
+
+.table-action-btn.btn-history:hover {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
 .table-action-btn.btn-delete:hover {
   background: #fef2f2;
   color: #ef4444;
