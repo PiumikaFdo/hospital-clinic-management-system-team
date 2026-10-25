@@ -533,9 +533,6 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
   let transactionStarted = false;
   try {
     const { bill_id, amount, payment_method, transaction_reference } = req.body;
-    await pool.query('CALL sp_process_payment(?,?,?,?,?)',
-      [bill_id, amount, payment_method, transaction_reference || null, req.user.staff_id]);
-
     const paymentAmount = Number(amount);
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero' });
@@ -596,7 +593,6 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
     );
     await connection.commit();
     transactionStarted = false;
-
     res.json({ success: true, message: 'Payment processed successfully' });
   } catch (err) {
     if (transactionStarted) {
