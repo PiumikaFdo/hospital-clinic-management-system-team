@@ -10,7 +10,22 @@ router.get('/dashboard', authenticateToken, authorizeRoles('nurse'), async (req,
     const [[{ pending_labs }]] = await pool.query("SELECT COUNT(*) AS pending_labs FROM lab_requests WHERE status NOT IN ('Completed','Cancelled')");
     const [[{ available_beds }]] = await pool.query("SELECT SUM(available_beds) AS available_beds FROM wards");
     const [admissions] = await pool.query('SELECT * FROM vw_current_admissions LIMIT 10');
-    const [labs] = await pool.query('SELECT * FROM vw_lab_tests_status WHERE status=\'Requested\' LIMIT 10');
+    const [labs] = await pool.query(`
+      SELECT
+        lr.lab_request_id, lr.patient_id, lr.request_date, lr.status, lr.priority,
+        lr.sample_collected_at, lr.completed_at, lr.notes,
+        lr.guest_name, lr.guest_phone, lr.guest_email,
+        COALESCE(NULLIF(CONCAT_WS(' ', pu.first_name, pu.last_name), ''), lr.guest_name, 'Walk-in Patient') AS patient_name,
+        p.patient_code,
+        lt.test_name, lt.category, lt.price, lt.normal_range, lt.unit
+      FROM lab_requests lr
+      LEFT JOIN patients p ON lr.patient_id = p.patient_id
+      LEFT JOIN users pu ON p.user_id = pu.user_id
+      JOIN lab_tests lt ON lr.test_id = lt.test_id
+      WHERE lr.status NOT IN ('Completed', 'Cancelled')
+      ORDER BY lr.request_date DESC
+      LIMIT 10
+    `);
     const [beds] = await pool.query('SELECT * FROM vw_ward_bed_status WHERE bed_status=\'Available\'');
     res.json({
       success: true,
@@ -193,18 +208,120 @@ router.get('/lab-requests', authenticateToken, authorizeRoles('nurse','admin','d
 
 // POST /api/nurse/lab-requests (Request lab test - supports both staff and guest/public bookings)
 router.post('/lab-requests', async (req, res, next) => {
-  // If guest booking (guest_name present), handle without requiring auth
-  if (req.body.guest_name && !req.headers.authorization) {
+  // Public bookings can still carry a JWT when the visitor is already signed in.
+  if (req.body.guest_name !== undefined) {
     try {
-      const { test_id, guest_name, guest_phone, guest_email, notes } = req.body;
-      const [result] = await pool.query(
-        'INSERT INTO lab_requests (test_id, guest_name, guest_phone, guest_email, notes, priority) VALUES (?, ?, ?, ?, ?, "Normal")',
-        [test_id, guest_name, guest_phone, guest_email, notes || null]
+      const { patient_id, test_id, guest_name, guest_phone, guest_email, notes } = req.body;
+
+      const cleanName  = String(guest_name || '').trim().replace(/\s+/g, ' ');
+      const cleanPhone = String(guest_phone || '').replace(/[\s-]/g, '');
+      const cleanEmail = String(guest_email || '').trim();
+      const cleanNotes = String(notes || '').trim();
+
+      if (!test_id) {
+        return res.status(400).json({ success: false, message: 'Please select a diagnostic laboratory test.' });
+      }
+      if (!cleanName || cleanName.length < 3 || cleanName.length > 100 || !/^[A-Za-z\s.'-]+$/.test(cleanName)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid patient full name (3–100 letters).' });
+      }
+      if (!/^(?:07\d{8}|\+947\d{8})$/.test(cleanPhone)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid 10-digit Sri Lankan mobile number (e.g. 0771234567).' });
+      }
+      if (cleanEmail && (cleanEmail.length > 100 || !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleanEmail))) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
+      }
+      if (cleanNotes && (cleanNotes.length < 3 || cleanNotes.length > 500)) {
+        return res.status(400).json({ success: false, message: 'Special instructions must be between 3 and 500 characters if provided.' });
+      }
+
+      // Check if patient already exists in patients table
+      const [patients] = await pool.query(
+        `SELECT p.patient_id, p.patient_code,
+                TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS full_name,
+                u.email, u.phone
+         FROM patients p
+         JOIN users u ON p.user_id = u.user_id`
       );
-      return res.status(201).json({ success: true, message: 'Lab test booked successfully', request_id: result.insertId });
+
+      const byId    = patient_id ? patients.find(p => Number(p.patient_id) === Number(patient_id)) : null;
+      const byEmail = cleanEmail ? patients.find(p => (p.email || '').toLowerCase() === cleanEmail.toLowerCase()) : null;
+      const byPhone = patients.find(p => (p.phone || '').replace(/[\s-]/g, '') === cleanPhone);
+      const byName  = patients.find(p => (p.full_name || '').toLowerCase() === cleanName.toLowerCase());
+
+      // If email or phone matches an existing patient_id, ensure the entered name belongs to that patient_id
+      if (byEmail && byEmail.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: `Patient name "${cleanName}" does not match the registered name "${byEmail.full_name}" for Patient ID #${byEmail.patient_id} (${byEmail.email}).`
+        });
+      }
+      if (byPhone && byPhone.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: `Patient name "${cleanName}" does not match the registered name "${byPhone.full_name}" for Patient ID #${byPhone.patient_id}.`
+        });
+      }
+      if (byId && byId.full_name.toLowerCase() !== cleanName.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: `Patient name "${cleanName}" does not match the registered name "${byId.full_name}" for Patient ID #${byId.patient_id}.`
+        });
+      }
+
+      let matchedPatient = byId || byEmail || byPhone || byName;
+
+      // If the patient was not registered beforehand, automatically create a patient record so patient_id is populated
+      if (!matchedPatient) {
+        const nameParts = cleanName.split(' ');
+        const firstName = nameParts[0];
+        const lastName  = nameParts.slice(1).join(' ') || '';
+        const suffix    = `${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 90 + 10)}`;
+        const username  = `${firstName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'patient'}_${suffix}`;
+        const emailToUse = cleanEmail || `${username}@guest.medicare.local`;
+        const defaultHash = '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+
+        const [userRes] = await pool.query(
+          `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone)
+           VALUES (?, ?, ?, 'patient', ?, ?, ?)`,
+          [username, emailToUse, defaultHash, firstName, lastName, cleanPhone]
+        );
+        const newUserId = userRes.insertId;
+        const patientCode = `PAT${String(newUserId).padStart(6, '0')}`;
+        const [patRes] = await pool.query(
+          `INSERT INTO patients (user_id, patient_code) VALUES (?, ?)`,
+          [newUserId, patientCode]
+        );
+
+        matchedPatient = {
+          patient_id: patRes.insertId,
+          patient_code: patientCode,
+          full_name: cleanName,
+          email: cleanEmail || null,
+          phone: cleanPhone
+        };
+      }
+
+      const [result] = await pool.query(
+        'INSERT INTO lab_requests (patient_id, test_id, guest_name, guest_phone, guest_email, notes, priority) VALUES (?, ?, ?, ?, ?, ?, "Normal")',
+        [
+          matchedPatient.patient_id,
+          test_id,
+          matchedPatient.full_name,
+          cleanPhone,
+          cleanEmail || matchedPatient.email || null,
+          cleanNotes || null
+        ]
+      );
+      return res.status(201).json({
+        success: true,
+        message: 'Lab test booked successfully',
+        request_id: result.insertId,
+        patient_id: matchedPatient.patient_id,
+        patient_name: matchedPatient.full_name
+      });
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ success: false, message: 'Booking failed' });
+      return res.status(400).json({ success: false, message: err.sqlMessage || 'Booking failed' });
     }
   }
   // Otherwise, use authenticateToken and authorizeRoles

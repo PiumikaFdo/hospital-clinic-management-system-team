@@ -1409,17 +1409,18 @@ LEFT JOIN staff ns ON ad.nurse_id = ns.staff_id
 LEFT JOIN users nu ON ns.user_id = nu.user_id
 WHERE ad.status = 'Active'$$
 
-CREATE VIEW vw_lab_tests_status AS
+CREATE OR REPLACE VIEW vw_lab_tests_status AS
 SELECT
-    lr.lab_request_id, lr.request_date, lr.status, lr.priority,
+    lr.lab_request_id, lr.patient_id, lr.request_date, lr.status, lr.priority,
     lr.sample_collected_at, lr.completed_at,
-    CONCAT(pu.first_name,' ',pu.last_name) AS patient_name,
+    lr.notes, lr.guest_name, lr.guest_phone, lr.guest_email,
+    COALESCE(CONCAT(pu.first_name,' ',pu.last_name), lr.guest_name, 'Walk-in Patient') AS patient_name,
     p.patient_code,
-    lt.test_name, lt.category, lt.price,
+    lt.test_name, lt.category, lt.price, lt.normal_range, lt.unit,
     res.result_value, res.remarks, res.is_abnormal, res.reported_at
 FROM lab_requests lr
-JOIN patients p ON lr.patient_id = p.patient_id
-JOIN users pu ON p.user_id = pu.user_id
+LEFT JOIN patients p ON lr.patient_id = p.patient_id
+LEFT JOIN users pu ON p.user_id = pu.user_id
 JOIN lab_tests lt ON lr.test_id = lt.test_id
 LEFT JOIN lab_results res ON lr.lab_request_id = res.lab_request_id$$
 

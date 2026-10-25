@@ -5,22 +5,9 @@ import DashboardLayout from '../../components/DashboardLayout';
 
 const NurseAdmissions = () => {
   const [admissions, setAdmissions] = useState([]);
-  const [patients, setPatients] = useState([]);
-  const [doctors, setDoctors] = useState([]);
-  const [wards, setWards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-
-  // Admit modal
-  const [showAdmitModal, setShowAdmitModal] = useState(false);
-  const [admitForm, setAdmitForm] = useState({
-    patient_id: '',
-    ward_id: '',
-    doctor_id: '',
-    reason: ''
-  });
-  const [admitting, setAdmitting] = useState(false);
 
   // Discharge modal
   const [showDischargeModal, setShowDischargeModal] = useState(false);
@@ -43,38 +30,13 @@ const NurseAdmissions = () => {
 
     API.get(`/nurse/admissions?${params.toString()}`)
       .then(res => setAdmissions(res.data.data || []))
-      .catch(err => toast.error('Failed to load admissions'))
+      .catch(() => toast.error('Failed to load admissions'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     fetchAdmissions();
   }, [statusFilter, startDate, endDate]);
-
-  useEffect(() => {
-    API.get('/receptionist/patients').then(r => setPatients(r.data.data || [])).catch(() => {});
-    API.get('/appointments/public/doctors').then(r => setDoctors(r.data.data || [])).catch(() => {});
-    API.get('/receptionist/wards').then(r => setWards(r.data.data || [])).catch(() => {});
-  }, []);
-
-  const handleAdmit = async (e) => {
-    e.preventDefault();
-    if (!admitForm.patient_id || !admitForm.ward_id || !admitForm.doctor_id) {
-      return toast.warning('Please select patient, ward, and attending doctor');
-    }
-    setAdmitting(true);
-    try {
-      await API.post('/nurse/admissions', admitForm);
-      toast.success('Patient admitted and bed reserved successfully!');
-      setShowAdmitModal(false);
-      setAdmitForm({ patient_id: '', ward_id: '', doctor_id: '', reason: '' });
-      fetchAdmissions();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Admission failed');
-    } finally {
-      setAdmitting(false);
-    }
-  };
 
   const handleDischarge = async (e) => {
     e.preventDefault();
@@ -154,10 +116,6 @@ const NurseAdmissions = () => {
             )}
           </div>
         </div>
-
-        <button className="btn btn-primary" onClick={() => setShowAdmitModal(true)}>
-          + Admit New Patient
-        </button>
       </div>
 
       {/* ADMISSIONS TABLE */}
@@ -247,104 +205,6 @@ const NurseAdmissions = () => {
           )}
         </div>
       </div>
-
-      {/* ADMIT PATIENT MODAL */}
-      {showAdmitModal && (
-        <div className="modal-backdrop">
-          <div className="modal-dialog animate-slide-up" style={{ maxWidth: 540 }}>
-            <div className="modal-header">
-              <h3 style={{ fontSize: 18, fontWeight: 700 }}>🛏️ Admit In-Patient</h3>
-              <button
-                className="btn-close"
-                onClick={() => setShowAdmitModal(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-            <form onSubmit={handleAdmit}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Select Registered Patient *</label>
-                  <select
-                    className="form-control"
-                    required
-                    value={admitForm.patient_id}
-                    onChange={e => setAdmitForm({ ...admitForm, patient_id: e.target.value })}
-                  >
-                    <option value="">-- Choose Patient --</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>
-                        {p.first_name} {p.last_name} ({p.patient_code || p.email})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Select Ward *</label>
-                    <select
-                      className="form-control"
-                      required
-                      value={admitForm.ward_id}
-                      onChange={e => setAdmitForm({ ...admitForm, ward_id: e.target.value })}
-                    >
-                      <option value="">-- Choose Ward --</option>
-                      {wards.map(w => (
-                        <option key={w.ward_id} value={w.ward_id}>
-                          {w.ward_name} ({w.available_beds || 0} free)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Attending Doctor *</label>
-                    <select
-                      className="form-control"
-                      required
-                      value={admitForm.doctor_id}
-                      onChange={e => setAdmitForm({ ...admitForm, doctor_id: e.target.value })}
-                    >
-                      <option value="">-- Choose Doctor --</option>
-                      {doctors.map(d => (
-                        <option key={d.staff_id} value={d.staff_id}>
-                          Dr. {d.first_name} {d.last_name} ({d.dept_name})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Reason for Admission / Clinical Notes</label>
-                  <textarea
-                    className="form-control"
-                    rows="3"
-                    placeholder="E.g., Post-operative observation, severe acute pneumonia, IV antibiotics administration..."
-                    value={admitForm.reason}
-                    onChange={e => setAdmitForm({ ...admitForm, reason: e.target.value })}
-                  />
-                </div>
-
-                <div style={{ background: 'var(--gray-50)', padding: 12, borderRadius: 8, fontSize: 12, color: 'var(--gray-600)' }}>
-                  ℹ️ Submitting this form will automatically reserve and assign the first available bed in the selected ward.
-                </div>
-              </div>
-
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px', borderTop: '1px solid var(--border)' }}>
-                <button type="button" className="btn btn-outline" onClick={() => setShowAdmitModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={admitting}>
-                  {admitting ? 'Admitting...' : 'Confirm Admission'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* DISCHARGE MODAL */}
       {showDischargeModal && selectedAdmission && (
