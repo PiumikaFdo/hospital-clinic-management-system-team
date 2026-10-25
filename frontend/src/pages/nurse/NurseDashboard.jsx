@@ -40,7 +40,12 @@ const NurseDashboard = () => {
           </div>
         </div>
 
-        <div className="stat-card">
+        <Link
+          to="/nurse/lab-tests?status=Requested"
+          className="stat-card"
+          style={{ textDecoration: 'none', color: 'inherit' }}
+          aria-label="View pending lab samples"
+        >
           <div className="stat-icon purple">
             <FlaskConical size={24} />
           </div>
@@ -48,7 +53,7 @@ const NurseDashboard = () => {
             <div className="stat-value">{data.pending_labs}</div>
             <div className="stat-label">Pending Lab Samples</div>
           </div>
-        </div>
+        </Link>
 
         <div className="stat-card">
           <div className="stat-icon green">
