@@ -18,7 +18,8 @@ import {
   Activity,
   Shield,
   Stethoscope,
-  HeartPulse
+  HeartPulse,
+  CalendarClock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -51,9 +52,11 @@ const NAV_CONFIGS = {
     { 
       section: 'Clinical Care', 
       items: [
-        { to: '/doctor/appointments',  icon: CalendarCheck, label: 'My Consultations' },
-        { to: '/doctor/patients',      icon: Users,         label: 'Assigned Patients' },
-        { to: '/doctor/prescriptions', icon: FileText,      label: 'e-Prescriptions' },
+        { to: '/doctor/consultations',  icon: Stethoscope,     label: 'Consultations' },
+        { to: '/doctor/follow-ups',     icon: CalendarClock,   label: 'Follow-up Management' },
+        { to: '/doctor/appointments',   icon: CalendarCheck,   label: 'Appointments Queue' },
+        { to: '/doctor/patients',       icon: Users,           label: 'Assigned Patients' },
+        { to: '/doctor/prescriptions',  icon: FileText,        label: 'e-Prescriptions' },
       ]
     },
   ],
@@ -82,9 +85,10 @@ const NAV_CONFIGS = {
     { 
       section: 'Operations', 
       items: [
-        { to: '/receptionist/patients',   icon: Users,      label: 'Patient Intake' },
-        { to: '/receptionist/billing',    icon: CreditCard, label: 'Invoices & Billing' },
-        { to: '/receptionist/admissions', icon: Building2,  label: 'Patient Admissions' },
+        { to: '/receptionist/patients',     icon: Users,        label: 'Patient Intake' },
+        { to: '/receptionist/appointments', icon: CalendarDays, label: 'Appointments' },
+        { to: '/receptionist/billing',      icon: CreditCard,   label: 'Invoices & Billing' },
+        { to: '/receptionist/admissions',   icon: Building2,    label: 'Patient Admissions' },
       ]
     },
   ],
@@ -153,11 +157,6 @@ const Sidebar = () => {
           </div>
           <p>Enterprise Healthcare</p>
         </div>
-      </div>
-
-      <div className="sidebar-system-status">
-        <span className="status-indicator-dot" />
-        <span className="status-indicator-text">System Live • Encrypted</span>
       </div>
 
       <nav className="sidebar-nav">

@@ -23,14 +23,14 @@ router.get('/dashboard', authenticateToken, authorizeRoles('nurse'), async (req,
 });
 
 // GET /api/nurse/admissions (utilizes idx_nurse_admissions_status_date)
-router.get('/admissions', authenticateToken, authorizeRoles('nurse','admin'), async (req, res) => {
+router.get('/admissions', authenticateToken, authorizeRoles('nurse','admin','receptionist'), async (req, res) => {
   try {
     const { status, start_date, end_date, search } = req.query;
     let query = `
       SELECT
         ad.admission_id, ad.admission_date, ad.discharge_date, ad.reason_for_admission,
         ad.diagnosis_at_discharge, ad.status, ad.notes,
-        DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date) AS days_admitted,
+        GREATEST(1, DATEDIFF(COALESCE(ad.discharge_date, NOW()), ad.admission_date)) AS days_admitted,
         p.patient_id, p.patient_code, p.blood_group,
         CONCAT(pu.first_name,' ',pu.last_name) AS patient_name, pu.phone,
         w.ward_id, w.ward_name, w.ward_type, b.bed_id, b.bed_number,
@@ -86,6 +86,25 @@ router.post('/admissions', authenticateToken, authorizeRoles('nurse','receptioni
 
     if (!pid || !wid || !did) {
       return res.status(400).json({ success: false, message: 'Patient, ward, and doctor are required' });
+    }
+
+    // Check if patient already has an active admission in any bed
+    const [activeCheck] = await pool.query(
+      `SELECT ad.admission_id, b.bed_number, w.ward_name
+       FROM admissions ad
+       LEFT JOIN beds b ON ad.bed_id = b.bed_id
+       LEFT JOIN wards w ON ad.ward_id = w.ward_id
+       WHERE ad.patient_id = ? AND ad.status = 'Active'
+       LIMIT 1`,
+      [pid]
+    );
+
+    if (activeCheck.length > 0) {
+      const activeAdm = activeCheck[0];
+      return res.status(400).json({
+        success: false,
+        message: `Patient is already actively admitted in ${activeAdm.ward_name || 'Ward'} (Bed ${activeAdm.bed_number || 'N/A'}). A patient cannot be admitted to multiple beds.`
+      });
     }
 
     await pool.query('CALL sp_admit_patient(?,?,?,?,?,@aid,@bid)',

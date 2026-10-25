@@ -52,7 +52,7 @@ const PatientAppointments = () => {
           />
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {['All', 'Confirmed', 'Pending', 'Completed', 'Cancelled'].map(status => (
+            {['All', 'Confirmed', 'Completed', 'Cancelled'].map(status => (
               <button
                 key={status}
                 type="button"

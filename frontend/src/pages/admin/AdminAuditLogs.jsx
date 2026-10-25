@@ -141,6 +141,7 @@ const AdminAuditLogs = () => {
               <option value="ALL">All Actions</option>
               <option value="STATUS_CHANGE">Status Changes</option>
               <option value="LOW_STOCK_ALERT">Low Stock Alerts</option>
+              <option value="STAFF_REGISTER">Staff Registrations</option>
             </select>
           </div>
 

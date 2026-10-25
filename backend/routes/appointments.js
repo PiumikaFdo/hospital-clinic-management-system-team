@@ -59,7 +59,7 @@ router.get('/public/slots', async (req, res) => {
 
     const [booked] = await pool.query(
       `SELECT appointment_time FROM appointments
-       WHERE doctor_id=? AND appointment_date=? AND status NOT IN ('Cancelled','No_Show')`,
+       WHERE doctor_id=? AND appointment_date=?`,
       [doctor_id, date]
     );
     const bookedTimes = booked.map(b => b.appointment_time);
@@ -86,14 +86,87 @@ router.post('/public/book', async (req, res) => {
   try {
     const { guest_name, guest_phone, guest_email, doctor_id, appointment_date, appointment_time, reason } = req.body;
     const [result] = await pool.query(
-      `INSERT INTO appointments (doctor_id, appointment_date, appointment_time, reason, appointment_type, guest_name, guest_phone, guest_email)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [doctor_id, appointment_date, appointment_time, reason, 'Online', guest_name, guest_phone, guest_email]
+      `INSERT INTO appointments (doctor_id, appointment_date, appointment_time, reason, status, appointment_type, guest_name, guest_phone, guest_email)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [doctor_id, appointment_date, appointment_time, reason, 'Confirmed', 'Online', guest_name, guest_phone, guest_email]
     );
     res.status(201).json({ success: true, message: 'Appointment booked successfully!', appointment_id: result.insertId });
   } catch (err) {
     const msg = err.sqlMessage || 'Could not book appointment';
     res.status(400).json({ success: false, message: msg });
+  }
+});
+
+// POST /api/appointments  (book appointment for existing registered patient)
+router.post('/', authenticateToken, authorizeRoles('receptionist', 'admin', 'doctor', 'nurse', 'patient'), async (req, res) => {
+  try {
+    const {
+      patient_id,
+      doctor_id,
+      appointment_date,
+      appointment_time,
+      reason,
+      appointment_type = 'Walk-in',
+      status = 'Confirmed'
+    } = req.body;
+
+    if (!patient_id || !doctor_id || !appointment_date || !appointment_time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient, Doctor, Appointment Date, and Appointment Time are required'
+      });
+    }
+
+    // Verify patient exists
+    const [patientRows] = await pool.query(
+      `SELECT p.patient_id, CONCAT(u.first_name, ' ', u.last_name) AS patient_name
+       FROM patients p JOIN users u ON p.user_id = u.user_id
+       WHERE p.patient_id = ?`,
+      [patient_id]
+    );
+    if (!patientRows.length) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    const normalizedAppointmentType = appointment_type === 'In-Person'
+      ? 'Walk-in'
+      : ['Online', 'Walk-in', 'Emergency'].includes(appointment_type)
+      ? appointment_type
+      : 'Walk-in';
+
+    // Insert appointment
+    const [result] = await pool.query(
+      `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, appointment_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        patient_id,
+        doctor_id,
+        appointment_date,
+        appointment_time,
+        reason || 'General Clinical Consultation',
+        status,
+        normalizedAppointmentType
+      ]
+    );
+
+    // Audit log link if possible
+    if (req.user && req.user.user_id) {
+      await pool.query(
+        `UPDATE audit_logs SET user_id = ?, ip_address = ?
+         WHERE table_name = 'appointments' AND record_id = ? AND user_id IS NULL
+         ORDER BY log_id DESC LIMIT 1`,
+        [req.user.user_id, req.ip || null, result.insertId]
+      ).catch(() => {});
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Appointment successfully booked for ${patientRows[0].patient_name}!`,
+      data: { appointment_id: result.insertId }
+    });
+  } catch (err) {
+    console.error('Error booking appointment for existing patient:', err);
+    res.status(400).json({ success: false, message: err.sqlMessage || err.message || 'Could not book appointment' });
   }
 });
 
@@ -140,9 +213,38 @@ router.get('/', authenticateToken, async (req, res) => {
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
+    }
+
+    // Role-based validation: Doctors can only transition status to 'Confirmed' or 'Completed'
+    if (req.user.role === 'doctor') {
+      if (!['Confirmed', 'Completed'].includes(status)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Doctors can only change appointment status to Confirmed or Completed'
+        });
+      }
+      const [result] = await pool.query(
+        'UPDATE appointments SET status=? WHERE appointment_id=? AND doctor_id=?',
+        [status, req.params.id, req.user.staff_id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Appointment not found or unauthorized' });
+      }
+      return res.json({ success: true, message: `Appointment status updated to ${status}` });
+    }
+
     await pool.query('UPDATE appointments SET status=? WHERE appointment_id=?', [status, req.params.id]);
+    if (req.user && req.user.user_id) {
+      await pool.query(
+        'UPDATE audit_logs SET user_id=?, ip_address=? WHERE table_name="appointments" AND record_id=? AND user_id IS NULL ORDER BY log_id DESC LIMIT 1',
+        [req.user.user_id, req.ip || null, req.params.id]
+      );
+    }
     res.json({ success: true, message: 'Appointment status updated' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
