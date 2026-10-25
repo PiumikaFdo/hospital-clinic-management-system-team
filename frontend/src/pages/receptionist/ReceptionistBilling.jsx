@@ -1,10 +1,8 @@
-<<<<<<< Updated upstream
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-=======
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
->>>>>>> Stashed changes
+
+import { useSearchParams, useNavigate } from 'react-router-dom';
+
 import { toast } from 'react-toastify';
 import {
   Printer,
@@ -28,10 +26,13 @@ import {
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 import PrintableInvoiceModal from '../../components/PrintableInvoiceModal';
+import ReceptionistPagination from '../../components/ReceptionistPagination';
 
 const ReceptionistBilling = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const patientIdParam = searchParams.get('patient_id');
+  const billIdParam = searchParams.get('bill_id');
 
   const [activeTab, setActiveTab] = useState('invoices'); // 'invoices' | 'payments'
   const [bills, setBills] = useState([]);
@@ -43,6 +44,10 @@ const ReceptionistBilling = () => {
   const [search, setSearch] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
+  const [invoicePage, setInvoicePage] = useState(1);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const invoicePageSize = 10;
+  const paymentPageSize = 10;
 
   // Modals state
   const [showBillModal, setShowBillModal] = useState(false);
@@ -61,11 +66,11 @@ const ReceptionistBilling = () => {
     payment_method: 'Cash',
     transaction_reference: ''
   });
-<<<<<<< Updated upstream
-=======
   const [processingPayment, setProcessingPayment] = useState(false);
   const paymentSubmissionInProgress = useRef(false);
->>>>>>> Stashed changes
+
+  const [processingPayment, setProcessingPayment] = useState(false);
+
 
   // Printable modal state
   const [printModalState, setPrintModalState] = useState({
@@ -83,6 +88,7 @@ const ReceptionistBilling = () => {
       const billsParams = new URLSearchParams();
       if (statusFilter) billsParams.append('status', statusFilter);
       if (patientIdParam) billsParams.append('patient_id', patientIdParam);
+      if (billIdParam) billsParams.append('bill_id', billIdParam);
       if (startDate) billsParams.append('start_date', startDate);
       if (endDate) billsParams.append('end_date', endDate);
       if (search) billsParams.append('search', search);
@@ -90,6 +96,7 @@ const ReceptionistBilling = () => {
       const payParams = new URLSearchParams();
       if (paymentMethodFilter && paymentMethodFilter !== 'ALL') payParams.append('payment_method', paymentMethodFilter);
       if (patientIdParam) payParams.append('patient_id', patientIdParam);
+      if (billIdParam) payParams.append('bill_id', billIdParam);
       if (startDate) payParams.append('start_date', startDate);
       if (endDate) payParams.append('end_date', endDate);
       payParams.append('limit', 150);
@@ -111,7 +118,12 @@ const ReceptionistBilling = () => {
 
   useEffect(() => {
     fetchData();
-  }, [statusFilter, startDate, endDate, paymentMethodFilter, patientIdParam]);
+  }, [statusFilter, startDate, endDate, paymentMethodFilter, patientIdParam, billIdParam]);
+
+  useEffect(() => {
+    setInvoicePage(1);
+    setPaymentPage(1);
+  }, [statusFilter, startDate, endDate, paymentMethodFilter, patientIdParam, billIdParam, search]);
 
   useEffect(() => {
     if (patientIdParam) {
@@ -194,14 +206,12 @@ const ReceptionistBilling = () => {
 
   const processPayment = async e => {
     e.preventDefault();
-<<<<<<< Updated upstream
-=======
-    if (paymentSubmissionInProgress.current) return;
-    if (!showPayModal || showPayModal.payment_status === 'Paid' || Number(showPayModal.balance_amount) <= 0) {
+
+    if (processingPayment || !showPayModal || showPayModal.payment_status === 'Paid' || Number(showPayModal.balance_amount) <= 0) {
       toast.info('This invoice is already fully settled.');
       return;
     }
->>>>>>> Stashed changes
+
     const payAmt = Number(payForm.amount);
     if (!payAmt || payAmt <= 0) {
       toast.error('Please enter a valid payment amount');
@@ -213,11 +223,11 @@ const ReceptionistBilling = () => {
     }
 
     try {
-<<<<<<< Updated upstream
-=======
       paymentSubmissionInProgress.current = true;
       setProcessingPayment(true);
->>>>>>> Stashed changes
+
+      setProcessingPayment(true);
+
       await API.post('/receptionist/payments', {
         bill_id: showPayModal.bill_id,
         amount: payAmt,
@@ -234,12 +244,13 @@ const ReceptionistBilling = () => {
       handleOpenPrintReceipt(paidBillId, null, 'thermal');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Payment processing failed');
-<<<<<<< Updated upstream
-=======
     } finally {
       paymentSubmissionInProgress.current = false;
       setProcessingPayment(false);
->>>>>>> Stashed changes
+
+    } finally {
+      setProcessingPayment(false);
+
     }
   };
 
@@ -252,6 +263,14 @@ const ReceptionistBilling = () => {
   const totalOutstandingBalance = bills.reduce((sum, b) => sum + Number(b.balance_amount || 0), 0);
   const paidInvoicesCount = bills.filter(b => b.payment_status === 'Paid').length;
   const settlementRate = bills.length ? Math.round((paidInvoicesCount / bills.length) * 100) : 0;
+  const paymentsByBill = paymentsList.reduce((result, payment) => {
+    const key = String(payment.bill_id);
+    result[key] = result[key] || [];
+    result[key].push(payment);
+    return result;
+  }, {});
+  const paginatedBills = bills.slice((invoicePage - 1) * invoicePageSize, invoicePage * invoicePageSize);
+  const paginatedPayments = paymentsList.slice((paymentPage - 1) * paymentPageSize, paymentPage * paymentPageSize);
 
   const StatusBadge = ({ s }) => {
     if (s === 'Paid') {
@@ -301,7 +320,7 @@ const ReceptionistBilling = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#1e40af', fontWeight: 600, fontSize: '13px' }}>
             <FileText size={18} />
             <span>
-              Showing billing records for Patient ID: <strong>#{patientIdParam}</strong> ({bills.length} invoices found)
+              Showing billing records for Patient ID: <strong>{patientIdParam}</strong> ({bills.length} invoices found)
             </span>
           </div>
           <button
@@ -624,16 +643,19 @@ const ReceptionistBilling = () => {
                 Patient Invoices & Hospital Bills
               </h3>
             </div>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {bills.length} billing records</span>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>
+              {billIdParam ? `Invoice ${billIdParam} · ` : ''}Showing {bills.length} billing records
+            </span>
           </div>
 
           <div style={{ padding: '0 20px 20px' }}>
             <div className="table-container" style={{ overflowX: 'auto' }}>
-              <table className="receptionist-table">
+              <table className="receptionist-table" style={{ minWidth: '1240px' }}>
                 <thead>
                   <tr>
-                    <th>INVOICE #</th>
+                    <th>INVOICE</th>
                     <th>PATIENT PROFILE</th>
+                    <th>LINKED VISIT</th>
                     <th>BILL DATE</th>
                     <th>DOCTOR FEE</th>
                     <th>MEDICINE</th>
@@ -642,20 +664,44 @@ const ReceptionistBilling = () => {
                     <th>PAID</th>
                     <th>BALANCE DUE</th>
                     <th>STATUS</th>
+                    <th>PAYMENT ACTIVITY</th>
                     <th style={{ textAlign: 'right' }}>ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {bills.map(b => (
-                    <tr key={b.bill_id}>
+                  {paginatedBills.map(b => (
+                    <tr
+                      key={b.bill_id}
+                      style={String(b.bill_id) === String(billIdParam) ? { background: '#eff6ff' } : undefined}
+                    >
                       <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#2563eb' }}>
-                        #{b.bill_id}
+                        {b.bill_id}
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: '#1e293b' }}>{b.patient_name}</div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                           <span style={{ fontWeight: 600 }}>{b.patient_code}</span> · {b.phone || 'No Phone'}
                         </div>
+                      </td>
+                      <td style={{ fontSize: '12px', color: '#475569' }}>
+                        {b.appointment_id ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/receptionist/appointments?search=${b.appointment_id}`)}
+                            style={{
+                              border: 0,
+                              background: 'transparent',
+                              color: '#2563eb',
+                              cursor: 'pointer',
+                              padding: 0,
+                              fontWeight: 700
+                            }}
+                          >
+                            Appointment {b.appointment_id}
+                          </button>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>General billing</span>
+                        )}
                       </td>
                       <td style={{ fontSize: '12px', color: '#64748b' }}>
                         {new Date(b.bill_date).toLocaleDateString()}
@@ -676,6 +722,18 @@ const ReceptionistBilling = () => {
                       </td>
                       <td>
                         <StatusBadge s={b.payment_status} />
+                      </td>
+                      <td style={{ minWidth: '150px' }}>
+                        <div style={{ fontSize: '12px', color: '#475569' }}>
+                          {paymentsByBill[String(b.bill_id)]?.length
+                            ? `${paymentsByBill[String(b.bill_id)].length} payment${paymentsByBill[String(b.bill_id)].length > 1 ? 's' : ''} recorded`
+                            : 'No payments recorded'}
+                        </div>
+                        {paymentsByBill[String(b.bill_id)]?.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                            Latest: {paymentsByBill[String(b.bill_id)][0].payment_method} · Rs. {Number(paymentsByBill[String(b.bill_id)][0].amount || 0).toLocaleString()}
+                          </div>
+                        )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="table-action-group">
@@ -705,6 +763,12 @@ const ReceptionistBilling = () => {
                   ))}
                 </tbody>
               </table>
+              <ReceptionistPagination
+                page={invoicePage}
+                pageSize={invoicePageSize}
+                total={bills.length}
+                onPageChange={setInvoicePage}
+              />
 
               {!loading && !bills.length && (
                 <div className="empty-state" style={{ padding: '48px 20px', textAlign: 'center' }}>
@@ -751,11 +815,11 @@ const ReceptionistBilling = () => {
 
           <div style={{ padding: '0 20px 20px' }}>
             <div className="table-container" style={{ overflowX: 'auto' }}>
-              <table className="receptionist-table">
+              <table className="receptionist-table" style={{ minWidth: '1050px' }}>
                 <thead>
                   <tr>
                     <th>RECEIPT ID</th>
-                    <th>INVOICE #</th>
+                    <th>INVOICE</th>
                     <th>PATIENT NAME</th>
                     <th>AMOUNT RECEIVED</th>
                     <th>METHOD</th>
@@ -766,13 +830,13 @@ const ReceptionistBilling = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {paymentsList.map(p => (
+                  {paginatedPayments.map(p => (
                     <tr key={p.payment_id}>
                       <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#059669' }}>
                         REC-{String(p.payment_id).padStart(5, '0')}
                       </td>
                       <td style={{ fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>
-                        #{p.bill_id}
+                        {p.bill_id}
                       </td>
                       <td>
                         <strong style={{ color: '#1e293b' }}>{p.patient_name}</strong>
@@ -817,6 +881,12 @@ const ReceptionistBilling = () => {
                   ))}
                 </tbody>
               </table>
+              <ReceptionistPagination
+                page={paymentPage}
+                pageSize={paymentPageSize}
+                total={paymentsList.length}
+                onPageChange={setPaymentPage}
+              />
 
               {!loading && !paymentsList.length && (
                 <div className="empty-state" style={{ padding: '48px 20px', textAlign: 'center' }}>
@@ -1030,7 +1100,7 @@ const ReceptionistBilling = () => {
               >
                 <div>
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#ffffff' }}>
-                    💳 Counter Payment — Invoice #{showPayModal.bill_id}
+                    💳 Counter Payment — Invoice {showPayModal.bill_id}
                   </h3>
                   <div style={{ fontSize: '12px', color: '#dcfce7' }}>
                     Patient: {showPayModal.patient_name}
@@ -1139,9 +1209,10 @@ const ReceptionistBilling = () => {
                 <button
                   type="submit"
                   className="btn btn-success"
+                  disabled={processingPayment || showPayModal.payment_status === 'Paid' || Number(showPayModal.balance_amount) <= 0}
                   style={{ fontWeight: 600, background: '#16a34a', borderColor: '#16a34a' }}
                 >
-                  Confirm & Print Thermal Slip
+                  {processingPayment ? 'Processing...' : 'Confirm & Print Thermal Slip'}
                 </button>
               </div>
             </form>

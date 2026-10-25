@@ -65,30 +65,630 @@ router.get('/patients/:id/history', authenticateToken, authorizeRoles('doctor'),
   }
 });
 
+// Helper to safely find an unbooked time slot on CURDATE() for a doctor
+async function getAvailableSlotForDoctor(doctorId) {
+  const [existing] = await pool.query(
+    'SELECT appointment_time FROM appointments WHERE doctor_id = ? AND appointment_date = CURDATE() AND status NOT IN ("Cancelled","No_Show")',
+    [doctorId]
+  );
+  const taken = new Set(existing.map(e => String(e.appointment_time).slice(0, 5)));
+  for (let h = 8; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 5) {
+      const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      if (!taken.has(timeStr)) {
+        return `${timeStr}:00`;
+      }
+    }
+  }
+  return '23:59:00';
+}
+
 // POST /api/doctor/records  (add medical record + prescription)
 router.post('/records', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
   try {
     const {
       patient_id, appointment_id, diagnosis, symptoms, treatment_plan,
-      follow_up_date, record_notes, presc_notes,
+      follow_up_date, record_notes, presc_notes, chief_complaint,
       medicine_ids, quantities, dosages, frequencies, durations
     } = req.body;
+
+    if (!patient_id) {
+      return res.status(400).json({ success: false, message: 'Patient ID is required' });
+    }
+    if (!diagnosis || !diagnosis.trim()) {
+      return res.status(400).json({ success: false, message: 'Clinical Diagnosis is required' });
+    }
+
+    let linkedAppointmentId = appointment_id || null;
+
+    // If chief complaint is provided and appointment is linked, update appointment reason
+    if (chief_complaint && linkedAppointmentId) {
+      await pool.query(
+        'UPDATE appointments SET reason = ? WHERE appointment_id = ? AND doctor_id = ?',
+        [chief_complaint.trim(), linkedAppointmentId, req.user.staff_id]
+      );
+    } else if (chief_complaint && !linkedAppointmentId) {
+      // Check if unlinked existing appointment exists for patient today
+      const [existingAppt] = await pool.query(
+        'SELECT appointment_id FROM appointments a WHERE a.patient_id = ? AND a.doctor_id = ? AND a.appointment_date = CURDATE() AND a.appointment_id NOT IN (SELECT appointment_id FROM medical_records WHERE appointment_id IS NOT NULL) ORDER BY a.appointment_id DESC LIMIT 1',
+        [patient_id, req.user.staff_id]
+      );
+      if (existingAppt.length > 0) {
+        linkedAppointmentId = existingAppt[0].appointment_id;
+        await pool.query(
+          'UPDATE appointments SET reason = ?, status = "Completed" WHERE appointment_id = ? AND doctor_id = ?',
+          [chief_complaint.trim(), linkedAppointmentId, req.user.staff_id]
+        );
+      } else {
+        const slot = await getAvailableSlotForDoctor(req.user.staff_id);
+        const [newAppt] = await pool.query(
+          `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, notes)
+           VALUES (?, ?, CURDATE(), ?, ?, 'Completed', 'Consultation linked appointment')`,
+          [patient_id, req.user.staff_id, slot, chief_complaint.trim()]
+        );
+        linkedAppointmentId = newAppt.insertId;
+      }
+    }
+
+    const formattedFollowUpDate = follow_up_date && String(follow_up_date).trim() ? String(follow_up_date).trim() : null;
 
     await pool.query(
       'CALL sp_add_medical_record_with_prescription(?,?,?,?,?,?,?,?,?,?,?,?,?,?,@rid,@pid)',
       [
-        patient_id, req.user.staff_id, appointment_id, diagnosis, symptoms,
-        treatment_plan, follow_up_date, record_notes, presc_notes,
+        patient_id, req.user.staff_id, linkedAppointmentId, diagnosis.trim(), symptoms || null,
+        treatment_plan || null, formattedFollowUpDate, record_notes || null, presc_notes || null,
         JSON.stringify(medicine_ids || []), JSON.stringify(quantities || []),
         JSON.stringify(dosages || []), JSON.stringify(frequencies || []),
         JSON.stringify(durations || [])
       ]
     );
     const [[ids]] = await pool.query('SELECT @rid AS record_id, @pid AS prescription_id');
-    res.status(201).json({ success: true, message: 'Medical record saved', data: ids });
+    res.status(201).json({ success: true, message: 'Medical record and consultation saved', data: ids });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.sqlMessage || 'Server error' });
+  }
+});
+
+// POST /api/doctor/consultations (alias for creating consultations)
+router.post('/consultations', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const {
+      patient_id, appointment_id, diagnosis, symptoms, treatment_plan,
+      follow_up_date, notes, record_notes, presc_notes, chief_complaint,
+      medicine_ids, quantities, dosages, frequencies, durations
+    } = req.body;
+
+    if (!patient_id) {
+      return res.status(400).json({ success: false, message: 'Patient ID is required' });
+    }
+    if (!diagnosis || !diagnosis.trim()) {
+      return res.status(400).json({ success: false, message: 'Clinical Diagnosis is required' });
+    }
+
+    let linkedAppointmentId = appointment_id || null;
+
+    if (chief_complaint && linkedAppointmentId) {
+      await pool.query(
+        'UPDATE appointments SET reason = ? WHERE appointment_id = ? AND doctor_id = ?',
+        [chief_complaint.trim(), linkedAppointmentId, req.user.staff_id]
+      );
+    } else if (chief_complaint && !linkedAppointmentId) {
+      const [existingAppt] = await pool.query(
+        'SELECT appointment_id FROM appointments a WHERE a.patient_id = ? AND a.doctor_id = ? AND a.appointment_date = CURDATE() AND a.appointment_id NOT IN (SELECT appointment_id FROM medical_records WHERE appointment_id IS NOT NULL) ORDER BY a.appointment_id DESC LIMIT 1',
+        [patient_id, req.user.staff_id]
+      );
+      if (existingAppt.length > 0) {
+        linkedAppointmentId = existingAppt[0].appointment_id;
+        await pool.query(
+          'UPDATE appointments SET reason = ?, status = "Completed" WHERE appointment_id = ? AND doctor_id = ?',
+          [chief_complaint.trim(), linkedAppointmentId, req.user.staff_id]
+        );
+      } else {
+        const slot = await getAvailableSlotForDoctor(req.user.staff_id);
+        const [newAppt] = await pool.query(
+          `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, notes)
+           VALUES (?, ?, CURDATE(), ?, ?, 'Completed', 'Consultation linked appointment')`,
+          [patient_id, req.user.staff_id, slot, chief_complaint.trim()]
+        );
+        linkedAppointmentId = newAppt.insertId;
+      }
+    }
+
+    const noteText = notes || record_notes || null;
+    const formattedFollowUpDate = follow_up_date && String(follow_up_date).trim() ? String(follow_up_date).trim() : null;
+
+    await pool.query(
+      'CALL sp_add_medical_record_with_prescription(?,?,?,?,?,?,?,?,?,?,?,?,?,?,@rid,@pid)',
+      [
+        patient_id, req.user.staff_id, linkedAppointmentId, diagnosis.trim(), symptoms || null,
+        treatment_plan || null, formattedFollowUpDate, noteText, presc_notes || noteText,
+        JSON.stringify(medicine_ids || []), JSON.stringify(quantities || []),
+        JSON.stringify(dosages || []), JSON.stringify(frequencies || []),
+        JSON.stringify(durations || [])
+      ]
+    );
+    const [[ids]] = await pool.query('SELECT @rid AS record_id, @pid AS prescription_id');
+    res.status(201).json({ success: true, message: 'Consultation saved successfully', data: ids });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.sqlMessage || 'Server error' });
+  }
+});
+
+// GET /api/doctor/consultations (searchable, filterable, paginated consultation list with patient details)
+router.get('/consultations', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const staff_id = req.user.staff_id;
+    const { search, date, start_date, end_date, patient_id, page = 1, limit = 10, all } = req.query;
+
+    let baseQuery = `
+      FROM medical_records mr
+      JOIN patients p ON mr.patient_id = p.patient_id
+      JOIN users pu ON p.user_id = pu.user_id
+      LEFT JOIN appointments a ON mr.appointment_id = a.appointment_id
+      WHERE mr.doctor_id = ?
+    `;
+    const params = [staff_id];
+
+    if (patient_id) {
+      baseQuery += ' AND mr.patient_id = ?';
+      params.push(patient_id);
+    }
+    if (date) {
+      baseQuery += ' AND (DATE(mr.created_at) = ? OR a.appointment_date = ?)';
+      params.push(date, date);
+    }
+    if (start_date) {
+      baseQuery += ' AND DATE(mr.created_at) >= ?';
+      params.push(start_date);
+    }
+    if (end_date) {
+      baseQuery += ' AND DATE(mr.created_at) <= ?';
+      params.push(end_date);
+    }
+    if (search) {
+      baseQuery += ` AND (
+        pu.first_name LIKE ? OR 
+        pu.last_name LIKE ? OR 
+        CONCAT(pu.first_name, ' ', pu.last_name) LIKE ? OR 
+        p.patient_code LIKE ? OR 
+        pu.phone LIKE ? OR 
+        mr.diagnosis LIKE ? OR 
+        mr.symptoms LIKE ? OR 
+        a.reason LIKE ?
+      )`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s, s, s, s, s);
+    }
+
+    // Count matching records for pagination
+    const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${baseQuery}`, params);
+
+    // Fetch records
+    let selectQuery = `
+      SELECT 
+        mr.record_id,
+        mr.patient_id,
+        mr.doctor_id,
+        mr.appointment_id,
+        mr.diagnosis,
+        mr.symptoms,
+        mr.treatment_plan,
+        DATE_FORMAT(mr.follow_up_date, '%Y-%m-%d') AS follow_up_date,
+        mr.notes,
+        mr.created_at,
+        p.patient_code,
+        p.blood_group,
+        p.allergies,
+        CONCAT(pu.first_name, ' ', pu.last_name) AS patient_name,
+        pu.phone,
+        pu.gender,
+        pu.date_of_birth,
+        fn_get_patient_age(p.patient_id) AS age,
+        a.appointment_date,
+        a.appointment_time,
+        COALESCE(a.reason, '') AS chief_complaint,
+        (SELECT COUNT(*) FROM prescriptions pr WHERE pr.record_id = mr.record_id) AS prescription_count
+      ${baseQuery}
+      ORDER BY mr.created_at DESC, mr.record_id DESC
+    `;
+
+    if (all === 'true') {
+      const [rows] = await pool.query(selectQuery, params);
+      return res.json({
+        success: true,
+        data: rows,
+        pagination: { total, page: 1, limit: total, totalPages: 1 }
+      });
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+    const offset = (pageNum - 1) * limitNum;
+
+    selectQuery += ' LIMIT ? OFFSET ?';
+    const [rows] = await pool.query(selectQuery, [...params, limitNum, offset]);
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum) || 1
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// GET /api/doctor/follow-ups (consultations with follow_up_date and status filters: all, today, upcoming, overdue)
+router.get('/follow-ups', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const staff_id = req.user.staff_id;
+    const { status = 'all', search, page = 1, limit = 10 } = req.query;
+
+    let statusCondition = 'mr.follow_up_date IS NOT NULL';
+    if (status === 'today') {
+      statusCondition += ' AND mr.follow_up_date = CURDATE()';
+    } else if (status === 'upcoming') {
+      statusCondition += ' AND mr.follow_up_date > CURDATE()';
+    } else if (status === 'overdue') {
+      statusCondition += ' AND mr.follow_up_date < CURDATE()';
+    }
+
+    let baseQuery = `
+      FROM medical_records mr
+      JOIN patients p ON mr.patient_id = p.patient_id
+      JOIN users pu ON p.user_id = pu.user_id
+      LEFT JOIN appointments a ON mr.appointment_id = a.appointment_id
+      WHERE mr.doctor_id = ? AND ${statusCondition}
+    `;
+    const params = [staff_id];
+
+    if (search) {
+      baseQuery += ` AND (
+        pu.first_name LIKE ? OR 
+        pu.last_name LIKE ? OR 
+        CONCAT(pu.first_name, ' ', pu.last_name) LIKE ? OR 
+        p.patient_code LIKE ? OR 
+        pu.phone LIKE ? OR 
+        mr.diagnosis LIKE ? OR 
+        mr.symptoms LIKE ? OR 
+        a.reason LIKE ?
+      )`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s, s, s, s, s);
+    }
+
+    // Live counts for All, Today, Upcoming, and Overdue
+    const [countsResult] = await pool.query(`
+      SELECT 
+        COUNT(CASE WHEN follow_up_date IS NOT NULL THEN 1 END) AS \`all\`,
+        COUNT(CASE WHEN follow_up_date = CURDATE() THEN 1 END) AS \`today\`,
+        COUNT(CASE WHEN follow_up_date > CURDATE() THEN 1 END) AS \`upcoming\`,
+        COUNT(CASE WHEN follow_up_date < CURDATE() THEN 1 END) AS \`overdue\`
+      FROM medical_records
+      WHERE doctor_id = ?
+    `, [staff_id]);
+
+    const counts = {
+      all: countsResult[0]?.all || 0,
+      today: countsResult[0]?.today || 0,
+      upcoming: countsResult[0]?.upcoming || 0,
+      overdue: countsResult[0]?.overdue || 0
+    };
+
+    const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${baseQuery}`, params);
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+    const offset = (pageNum - 1) * limitNum;
+
+    const selectQuery = `
+      SELECT 
+        mr.record_id,
+        mr.patient_id,
+        mr.doctor_id,
+        mr.appointment_id,
+        mr.diagnosis,
+        mr.symptoms,
+        mr.treatment_plan,
+        DATE_FORMAT(mr.follow_up_date, '%Y-%m-%d') AS follow_up_date,
+        mr.notes,
+        mr.created_at,
+        p.patient_code,
+        p.blood_group,
+        p.allergies,
+        CONCAT(pu.first_name, ' ', pu.last_name) AS patient_name,
+        pu.phone,
+        pu.gender,
+        pu.date_of_birth,
+        fn_get_patient_age(p.patient_id) AS age,
+        a.appointment_date,
+        a.appointment_time,
+        COALESCE(a.reason, '') AS chief_complaint,
+        DATEDIFF(mr.follow_up_date, CURDATE()) AS days_diff,
+        CASE
+          WHEN mr.follow_up_date = CURDATE() THEN 'Today'
+          WHEN mr.follow_up_date > CURDATE() THEN 'Upcoming'
+          WHEN mr.follow_up_date < CURDATE() THEN 'Overdue'
+          ELSE 'None'
+        END AS follow_up_category,
+        (SELECT COUNT(*) FROM prescriptions pr WHERE pr.record_id = mr.record_id) AS prescription_count
+      ${baseQuery}
+      ORDER BY 
+        CASE 
+          WHEN mr.follow_up_date = CURDATE() THEN 1
+          WHEN mr.follow_up_date < CURDATE() THEN 2
+          ELSE 3
+        END,
+        mr.follow_up_date ASC,
+        mr.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const [rows] = await pool.query(selectQuery, [...params, limitNum, offset]);
+
+    res.json({
+      success: true,
+      data: rows,
+      counts,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum) || 1
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// GET /api/doctor/consultations/:id (single consultation details with patient info and linked prescriptions)
+router.get('/consultations/:id', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const { staff_id } = req.user;
+    const [rows] = await pool.query(`
+      SELECT 
+        mr.record_id,
+        mr.patient_id,
+        mr.doctor_id,
+        mr.appointment_id,
+        mr.diagnosis,
+        mr.symptoms,
+        mr.treatment_plan,
+        DATE_FORMAT(mr.follow_up_date, '%Y-%m-%d') AS follow_up_date,
+        mr.notes,
+        mr.created_at,
+        p.patient_code,
+        p.blood_group,
+        p.allergies,
+        CONCAT(pu.first_name, ' ', pu.last_name) AS patient_name,
+        pu.phone,
+        pu.gender,
+        pu.date_of_birth,
+        fn_get_patient_age(p.patient_id) AS age,
+        a.appointment_date,
+        a.appointment_time,
+        COALESCE(a.reason, '') AS chief_complaint
+      FROM medical_records mr
+      JOIN patients p ON mr.patient_id = p.patient_id
+      JOIN users pu ON p.user_id = pu.user_id
+      LEFT JOIN appointments a ON mr.appointment_id = a.appointment_id
+      WHERE mr.record_id = ? AND mr.doctor_id = ?
+    `, [req.params.id, staff_id]);
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Consultation record not found or access denied' });
+    }
+
+    const consultation = rows[0];
+
+    // Fetch linked prescriptions and items
+    const [prescriptions] = await pool.query(`
+      SELECT 
+        pr.prescription_id,
+        pr.prescription_date,
+        pr.status,
+        pr.total_cost,
+        pr.notes AS presc_notes,
+        pi.item_id,
+        pi.medicine_id,
+        pi.dosage,
+        pi.frequency,
+        pi.duration,
+        pi.quantity,
+        pi.unit_price,
+        m.medicine_name,
+        m.dosage_form,
+        m.strength
+      FROM prescriptions pr
+      LEFT JOIN prescription_items pi ON pr.prescription_id = pi.prescription_id
+      LEFT JOIN medicines m ON pi.medicine_id = m.medicine_id
+      WHERE pr.record_id = ?
+    `, [req.params.id]);
+
+    const groupedPrescriptions = {};
+    for (const row of prescriptions) {
+      if (!groupedPrescriptions[row.prescription_id]) {
+        groupedPrescriptions[row.prescription_id] = {
+          prescription_id: row.prescription_id,
+          prescription_date: row.prescription_date,
+          status: row.status,
+          total_cost: row.total_cost,
+          notes: row.presc_notes,
+          items: []
+        };
+      }
+      if (row.item_id) {
+        groupedPrescriptions[row.prescription_id].items.push({
+          item_id: row.item_id,
+          medicine_id: row.medicine_id,
+          medicine_name: row.medicine_name,
+          dosage_form: row.dosage_form,
+          strength: row.strength,
+          dosage: row.dosage,
+          frequency: row.frequency,
+          duration: row.duration,
+          quantity: row.quantity,
+          unit_price: row.unit_price
+        });
+      }
+    }
+
+    consultation.prescriptions = Object.values(groupedPrescriptions);
+    consultation.prescription_count = consultation.prescriptions.length;
+
+    res.json({ success: true, data: consultation });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// PUT /api/doctor/consultations/:id (edit all six fields: chief complaint, symptoms, diagnosis, treatment plan, notes, follow-up date)
+router.put('/consultations/:id', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const { staff_id } = req.user;
+    const { id } = req.params;
+    const {
+      chief_complaint,
+      symptoms,
+      diagnosis,
+      treatment_plan,
+      notes,
+      follow_up_date
+    } = req.body;
+
+    if (!diagnosis || !diagnosis.trim()) {
+      return res.status(400).json({ success: false, message: 'Clinical Diagnosis is required' });
+    }
+
+    // Verify record exists and belongs to this doctor
+    const [existing] = await pool.query(
+      'SELECT record_id, patient_id, appointment_id FROM medical_records WHERE record_id = ? AND doctor_id = ?',
+      [id, staff_id]
+    );
+
+    if (!existing.length) {
+      return res.status(404).json({ success: false, message: 'Consultation record not found or access denied' });
+    }
+
+    const currentRecord = existing[0];
+    const validFollowUpDate = follow_up_date && String(follow_up_date).trim() ? String(follow_up_date).trim() : null;
+
+    // Update medical_records
+    await pool.query(
+      `UPDATE medical_records 
+       SET diagnosis = ?,
+           symptoms = ?,
+           treatment_plan = ?,
+           notes = ?,
+           follow_up_date = ?
+       WHERE record_id = ? AND doctor_id = ?`,
+      [
+        diagnosis.trim(),
+        symptoms !== undefined ? (symptoms ? String(symptoms).trim() : '') : null,
+        treatment_plan !== undefined ? (treatment_plan ? String(treatment_plan).trim() : '') : null,
+        notes !== undefined ? (notes ? String(notes).trim() : '') : null,
+        validFollowUpDate,
+        id,
+        staff_id
+      ]
+    );
+
+    // Update or link chief complaint
+    if (chief_complaint !== undefined) {
+      const cleanComplaint = chief_complaint ? String(chief_complaint).trim() : '';
+      if (currentRecord.appointment_id) {
+        await pool.query(
+          'UPDATE appointments SET reason = ? WHERE appointment_id = ? AND doctor_id = ?',
+          [cleanComplaint, currentRecord.appointment_id, staff_id]
+        );
+      } else if (cleanComplaint) {
+        const slot = await getAvailableSlotForDoctor(staff_id);
+        const [apptRes] = await pool.query(
+          `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, reason, status, notes)
+           VALUES (?, ?, CURDATE(), ?, ?, 'Completed', 'Consultation linked appointment')`,
+          [currentRecord.patient_id, staff_id, slot, cleanComplaint]
+        );
+        await pool.query(
+          'UPDATE medical_records SET appointment_id = ? WHERE record_id = ?',
+          [apptRes.insertId, id]
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Consultation updated successfully',
+      data: {
+        record_id: parseInt(id, 10),
+        diagnosis: diagnosis.trim(),
+        symptoms: symptoms ? String(symptoms).trim() : '',
+        treatment_plan: treatment_plan ? String(treatment_plan).trim() : '',
+        notes: notes ? String(notes).trim() : '',
+        follow_up_date: validFollowUpDate,
+        chief_complaint: chief_complaint ? String(chief_complaint).trim() : ''
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// DELETE /api/doctor/consultations/:id (safe delete with prescription check and friendly error message)
+router.delete('/consultations/:id', authenticateToken, authorizeRoles('doctor'), async (req, res) => {
+  try {
+    const { staff_id } = req.user;
+    const { id } = req.params;
+
+    // Check if record exists and belongs to this doctor
+    const [records] = await pool.query(
+      'SELECT record_id, patient_id, appointment_id FROM medical_records WHERE record_id = ? AND doctor_id = ?',
+      [id, staff_id]
+    );
+
+    if (!records.length) {
+      return res.status(404).json({ success: false, message: 'Consultation record not found or access denied' });
+    }
+
+    // Safely check for linked prescriptions before deleting
+    const [prescriptions] = await pool.query(
+      'SELECT prescription_id, status FROM prescriptions WHERE record_id = ?',
+      [id]
+    );
+
+    if (prescriptions.length > 0) {
+      return res.status(400).json({
+        success: false,
+        has_prescriptions: true,
+        prescription_count: prescriptions.length,
+        message: `Cannot delete consultation: This consultation has ${prescriptions.length} linked prescription(s). To preserve pharmaceutical dispensing records and clinical audit integrity, consultations with linked prescriptions cannot be deleted.`
+      });
+    }
+
+    // Delete consultation safely
+    await pool.query(
+      'DELETE FROM medical_records WHERE record_id = ? AND doctor_id = ?',
+      [id, staff_id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Consultation record deleted successfully'
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 

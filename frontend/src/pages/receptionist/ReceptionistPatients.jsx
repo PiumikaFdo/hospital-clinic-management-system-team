@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
+import ReceptionistPagination from '../../components/ReceptionistPagination';
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -70,6 +71,8 @@ const ReceptionistPatients = () => {
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [bloodGroupFilter, setBloodGroupFilter] = useState('');
+  const [patientPage, setPatientPage] = useState(1);
+  const patientPageSize = 10;
 
   // Modals
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -84,7 +87,7 @@ const ReceptionistPatients = () => {
     doctor_id: '',
     appointment_date: new Date().toISOString().split('T')[0],
     appointment_time: '',
-    appointment_type: 'In-Person',
+    appointment_type: 'Walk-in',
     reason: ''
   });
   const [apptDoctorSchedules, setApptDoctorSchedules] = useState([]);
@@ -130,8 +133,38 @@ const ReceptionistPatients = () => {
       if (dateFilter) params.append('date', dateFilter);
       if (bloodGroupFilter) params.append('blood_group', bloodGroupFilter);
 
-      const res = await API.get(`/receptionist/patients?${params.toString()}`);
-      setPatients(res.data.data || []);
+      const [patientsRes, appointmentsRes] = await Promise.all([
+        API.get(`/receptionist/patients?${params.toString()}`),
+        API.get('/receptionist/appointments')
+      ]);
+      const appointmentRows = appointmentsRes.data?.data || [];
+      const latestByPatient = appointmentRows.reduce((latest, appointment) => {
+        if (!appointment.patient_id) return latest;
+        const current = latest[appointment.patient_id];
+        const appointmentKey = `${appointment.appointment_date || ''} ${appointment.appointment_time || ''}`;
+        const currentKey = current
+          ? `${current.appointment_date || ''} ${current.appointment_time || ''}`
+          : '';
+        if (!current || appointmentKey > currentKey) {
+          latest[appointment.patient_id] = appointment;
+        }
+        return latest;
+      }, {});
+
+      setPatients((patientsRes.data.data || []).map(patient => {
+        const latest = latestByPatient[patient.patient_id];
+        if (!latest) return patient;
+        return {
+          ...patient,
+          total_appointments: Math.max(Number(patient.total_appointments || 0), appointmentRows.filter(
+            appointment => appointment.patient_id === patient.patient_id
+          ).length),
+          latest_appointment_date: latest.appointment_date,
+          latest_appointment_time: latest.appointment_time,
+          latest_appointment_status: latest.status,
+          latest_appointment_doctor: latest.doctor_name
+        };
+      }));
     } catch (err) {
       console.error(err);
       toast.error('Failed to load patient register');
@@ -252,6 +285,15 @@ const ReceptionistPatients = () => {
       return name.includes(query) || code.includes(query) || phone.includes(query) || emergency.includes(query);
     });
   }, [patients, search]);
+
+  const paginatedPatients = useMemo(
+    () => filteredPatients.slice((patientPage - 1) * patientPageSize, patientPage * patientPageSize),
+    [filteredPatients, patientPage]
+  );
+
+  useEffect(() => {
+    setPatientPage(1);
+  }, [search, dateFilter, bloodGroupFilter]);
 
   // Handle Register Patient
   const handleRegister = async (e) => {
@@ -418,7 +460,7 @@ const ReceptionistPatients = () => {
       doctor_id: '',
       appointment_date: today,
       appointment_time: '',
-      appointment_type: 'In-Person',
+      appointment_type: 'Walk-in',
       reason: ''
     });
     setApptDoctorSchedules([]);
@@ -508,17 +550,34 @@ const ReceptionistPatients = () => {
 
     setBookingAppt(true);
     try {
-      const res = await API.post('/appointments', {
+      const res = await API.post('/receptionist/appointments', {
+        patient_mode: 'existing',
         patient_id: apptPatient.patient_id,
         doctor_id: apptForm.doctor_id,
         appointment_date: apptForm.appointment_date,
         appointment_time: apptForm.appointment_time,
         appointment_type: apptForm.appointment_type,
-        reason: apptForm.reason.trim() || 'General Clinical Consultation'
+        reason: apptForm.reason.trim() || 'General Clinical Consultation',
+        generate_bill: false
       });
       toast.success(res.data.message || `Appointment booked successfully for ${apptPatient.first_name}!`);
+      const bookedDoctor = doctors.find(doctor => String(doctor.staff_id) === String(apptForm.doctor_id));
+      setPatients(currentPatients => currentPatients.map(patient => (
+        patient.patient_id === apptPatient.patient_id
+          ? {
+              ...patient,
+              total_appointments: Number(patient.total_appointments || 0) + 1,
+              latest_appointment_date: apptForm.appointment_date,
+              latest_appointment_time: apptForm.appointment_time,
+              latest_appointment_status: 'Confirmed',
+              latest_appointment_doctor: bookedDoctor?.doctor_name || 'Unassigned'
+            }
+          : patient
+      )));
+      window.dispatchEvent(new CustomEvent('receptionist:appointment-booked'));
       setShowApptModal(false);
       setApptPatient(null);
+      await loadPatients();
     } catch (err) {
       console.error('Error booking appointment:', err);
       toast.error(err.response?.data?.message || 'Failed to book appointment');
@@ -814,13 +873,14 @@ const ReceptionistPatients = () => {
                 <th style={{ width: '90px' }}>Blood</th>
                 <th style={{ width: '125px' }}>Contact</th>
                 <th style={{ minWidth: '190px' }}>🚨 Emergency Contact</th>
+                <th>Latest Appointment</th>
                 <th>Clinical / Care Status</th>
                 <th style={{ width: '100px' }}>Registered</th>
                 <th style={{ textAlign: 'right', minWidth: '160px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredPatients.map(p => {
+              {paginatedPatients.map(p => {
                 const isAdmitted = !!p.active_admission_id;
                 const hasPendingBills = Number(p.pending_bills_count) > 0;
 
@@ -930,6 +990,22 @@ const ReceptionistPatients = () => {
                           <AlertTriangle size={12} style={{ color: '#f59e0b' }} />
                           Missing Contact
                         </span>
+                      )}
+                    </td>
+
+                    {/* Clinical / Care Status */}
+                    <td>
+                      {p.latest_appointment_date ? (
+                        <>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b' }}>
+                            {p.latest_appointment_date} · {String(p.latest_appointment_time || '').slice(0, 5)}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Dr. {p.latest_appointment_doctor || 'Unassigned'} · {p.latest_appointment_status || 'Scheduled'}
+                          </div>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>No appointments</span>
                       )}
                     </td>
 
@@ -1066,6 +1142,12 @@ const ReceptionistPatients = () => {
               })}
             </tbody>
           </table>
+          <ReceptionistPagination
+            page={patientPage}
+            pageSize={patientPageSize}
+            total={filteredPatients.length}
+            onPageChange={setPatientPage}
+          />
 
           {/* Empty / Loading State */}
           {loading && (
@@ -2106,7 +2188,7 @@ const ReceptionistPatients = () => {
                           <tbody>
                             {patientDossier.bills.map(b => (
                               <tr key={b.bill_id}>
-                                <td>#{b.bill_id}</td>
+                                <td>{b.bill_id}</td>
                                 <td>{new Date(b.bill_date).toLocaleDateString()}</td>
                                 <td>Rs. {Number(b.total_amount).toLocaleString()}</td>
                                 <td>Rs. {Number(b.paid_amount).toLocaleString()}</td>
@@ -2557,10 +2639,9 @@ const ReceptionistPatients = () => {
                       value={apptForm.appointment_type}
                       onChange={e => setApptForm(f => ({ ...f, appointment_type: e.target.value }))}
                     >
-                      <option value="In-Person">In-Person Consultation</option>
-                      <option value="Follow-up">Follow-up Review</option>
+                      <option value="Walk-in">Walk-in Consultation</option>
+                      <option value="Online">Online Consultation</option>
                       <option value="Emergency">Emergency Consultation</option>
-                      <option value="Lab Review">Lab / Diagnostic Review</option>
                     </select>
                   </div>
                 </div>

@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 
 const NurseLabTests = () => {
+  const [searchParams] = useSearchParams();
   const [requests, setRequests] = useState([]);
   const [labTests, setLabTests] = useState([]);
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'All');
   const [searchTerm, setSearchTerm] = useState('');
 
   // New Request Modal

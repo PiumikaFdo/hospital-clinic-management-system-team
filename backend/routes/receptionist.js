@@ -7,7 +7,7 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 router.get('/dashboard', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
   try {
     const [[{ today_reg }]] = await pool.query('SELECT fn_today_registrations() AS today_reg');
-    const [[{ pending_bills }]] = await pool.query("SELECT COUNT(*) AS pending_bills FROM bills WHERE payment_status='Pending'");
+    const [[{ pending_bills }]] = await pool.query("SELECT COUNT(*) AS pending_bills FROM bills WHERE payment_status IN ('Pending', 'Partial')");
     const [[{ today_payments }]] = await pool.query('SELECT COALESCE(SUM(amount),0) AS today_payments FROM payments WHERE DATE(payment_date)=CURDATE()');
     const [[{ active_admissions }]] = await pool.query("SELECT COUNT(*) AS active_admissions FROM admissions WHERE status='Active'");
     const [[{ today_appts }]] = await pool.query("SELECT COUNT(*) AS today_appts FROM appointments WHERE appointment_date=CURDATE()");
@@ -15,7 +15,7 @@ router.get('/dashboard', authenticateToken, authorizeRoles('receptionist'), asyn
     const [[{ total_beds }]] = await pool.query("SELECT COUNT(*) AS total_beds FROM beds");
     const [[{ available_beds }]] = await pool.query("SELECT COUNT(*) AS available_beds FROM beds WHERE status='Available'");
     const [recent_patients] = await pool.query('SELECT * FROM vw_registered_patients ORDER BY registered_at DESC LIMIT 6');
-    const [pending_bills_list] = await pool.query('SELECT * FROM vw_patient_bills WHERE payment_status=\'Pending\' ORDER BY bill_date DESC LIMIT 6');
+    const [pending_bills_list] = await pool.query("SELECT * FROM vw_patient_bills WHERE payment_status IN ('Pending', 'Partial') ORDER BY bill_date DESC LIMIT 6");
     const [today_appts_list] = await pool.query(`
       SELECT a.appointment_id, a.appointment_time, a.status, a.appointment_type, a.reason,
              COALESCE(CONCAT(pu.first_name, ' ', pu.last_name), a.guest_name) AS patient_name,
@@ -66,9 +66,13 @@ router.get('/patients', authenticateToken, authorizeRoles('receptionist','admin'
         COALESCE(u.is_active, 1) AS is_active,
         TIMESTAMPDIFF(YEAR, u.date_of_birth, CURDATE()) AS age,
         (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.patient_id) AS total_appointments,
+        (SELECT DATE_FORMAT(a.appointment_date, '%Y-%m-%d') FROM appointments a WHERE a.patient_id = p.patient_id ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 1) AS latest_appointment_date,
+        (SELECT a.appointment_time FROM appointments a WHERE a.patient_id = p.patient_id ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 1) AS latest_appointment_time,
+        (SELECT a.status FROM appointments a WHERE a.patient_id = p.patient_id ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 1) AS latest_appointment_status,
+        (SELECT CONCAT(du.first_name, ' ', du.last_name) FROM appointments a JOIN staff ds ON a.doctor_id = ds.staff_id JOIN users du ON ds.user_id = du.user_id WHERE a.patient_id = p.patient_id ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 1) AS latest_appointment_doctor,
         (SELECT ad.admission_id FROM admissions ad WHERE ad.patient_id = p.patient_id AND ad.status = 'Active' LIMIT 1) AS active_admission_id,
         (SELECT CONCAT(w.ward_name, ' (Bed ', b.bed_number, ')') FROM admissions ad JOIN wards w ON ad.ward_id = w.ward_id JOIN beds b ON ad.bed_id = b.bed_id WHERE ad.patient_id = p.patient_id AND ad.status = 'Active' LIMIT 1) AS active_ward_bed,
-        (SELECT COUNT(*) FROM bills bl WHERE bl.patient_id = p.patient_id AND bl.payment_status = 'Pending') AS pending_bills_count
+        (SELECT COUNT(*) FROM bills bl WHERE bl.patient_id = p.patient_id AND bl.payment_status IN ('Pending', 'Partial')) AS pending_bills_count
       FROM patients p
       JOIN users u ON p.user_id = u.user_id
       WHERE 1=1
@@ -416,7 +420,7 @@ router.post('/bills', authenticateToken, authorizeRoles('receptionist'), async (
 // GET /api/receptionist/bills (utilizes idx_reception_bills_patient_status and idx_reception_bills_status_date)
 router.get('/bills', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
   try {
-    const { status, patient_id, start_date, end_date, search } = req.query;
+    const { status, patient_id, bill_id, start_date, end_date, search } = req.query;
     let q = `
       SELECT
         b.bill_id, b.bill_date, b.patient_id, b.admission_id, b.appointment_id,
@@ -452,6 +456,7 @@ router.get('/bills', authenticateToken, authorizeRoles('receptionist','admin'), 
     const params = [];
     if (status && status !== 'ALL') { q += ' AND b.payment_status=?'; params.push(status); }
     if (patient_id) { q += ' AND b.patient_id=?'; params.push(patient_id); }
+    if (bill_id) { q += ' AND b.bill_id=?'; params.push(bill_id); }
     if (start_date) { q += ' AND DATE(b.bill_date) >= ?'; params.push(start_date); }
     if (end_date) { q += ' AND DATE(b.bill_date) <= ?'; params.push(end_date); }
     if (search) {
@@ -528,10 +533,9 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
   let transactionStarted = false;
   try {
     const { bill_id, amount, payment_method, transaction_reference } = req.body;
-<<<<<<< Updated upstream
     await pool.query('CALL sp_process_payment(?,?,?,?,?)',
       [bill_id, amount, payment_method, transaction_reference || null, req.user.staff_id]);
-=======
+
     const paymentAmount = Number(amount);
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero' });
@@ -592,7 +596,7 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
     );
     await connection.commit();
     transactionStarted = false;
->>>>>>> Stashed changes
+
     res.json({ success: true, message: 'Payment processed successfully' });
   } catch (err) {
     if (transactionStarted) {
@@ -608,7 +612,7 @@ router.post('/payments', authenticateToken, authorizeRoles('receptionist'), asyn
 // GET /api/receptionist/payments (utilizes idx_reception_payments_date_method)
 router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'), async (req, res) => {
   try {
-    const { payment_method, patient_id, date, start_date, end_date, limit } = req.query;
+    const { payment_method, patient_id, bill_id, date, start_date, end_date, limit } = req.query;
     let q = `
       SELECT p.*, b.total_amount,
              GREATEST(0, b.total_amount - COALESCE(payment_totals.paid_amount, 0)) AS balance_amount,
@@ -636,6 +640,7 @@ router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'
     const params = [];
     if (payment_method && payment_method !== 'ALL') { q += ' AND p.payment_method = ?'; params.push(payment_method); }
     if (patient_id) { q += ' AND b.patient_id = ?'; params.push(patient_id); }
+    if (bill_id) { q += ' AND b.bill_id = ?'; params.push(bill_id); }
     if (date) { q += ' AND DATE(p.payment_date) = ?'; params.push(date); }
     if (start_date) { q += ' AND DATE(p.payment_date) >= ?'; params.push(start_date); }
     if (end_date) { q += ' AND DATE(p.payment_date) <= ?'; params.push(end_date); }
@@ -1257,7 +1262,7 @@ router.get('/appointments', authenticateToken, authorizeRoles('receptionist', 'a
       if (billing_status === 'Paid') {
         q += " AND b.payment_status = 'Paid'";
       } else if (billing_status === 'Pending') {
-        q += " AND b.payment_status = 'Pending'";
+        q += " AND b.payment_status IN ('Pending', 'Partial')";
       } else if (billing_status === 'Unbilled') {
         q += ' AND b.bill_id IS NULL';
       }
@@ -1660,4 +1665,3 @@ router.post('/appointments/:id/bill', authenticateToken, authorizeRoles('recepti
 });
 
 module.exports = router;
-

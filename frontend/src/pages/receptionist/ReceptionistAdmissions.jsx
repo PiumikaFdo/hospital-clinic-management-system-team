@@ -31,6 +31,7 @@ import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 import Barcode from '../../components/Barcode';
 import DoctorAdmissionOrderAlert from '../../components/DoctorAdmissionOrderAlert';
+import ReceptionistPagination from '../../components/ReceptionistPagination';
 
 const ReceptionistAdmissions = () => {
   const navigate = useNavigate();
@@ -66,6 +67,8 @@ const ReceptionistAdmissions = () => {
   const [wardFilter, setWardFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [bedMapWard, setBedMapWard] = useState('All');
+  const [admissionPage, setAdmissionPage] = useState(1);
+  const admissionPageSize = 10;
 
   // Modals
   const [showAdmitModal, setShowAdmitModal] = useState(false);
@@ -201,6 +204,15 @@ const ReceptionistAdmissions = () => {
   useEffect(() => {
     fetchAdmissions();
   }, [fetchAdmissions]);
+
+  useEffect(() => {
+    setAdmissionPage(1);
+  }, [statusFilter, wardFilter, search]);
+
+  const paginatedAdmissions = useMemo(
+    () => admissions.slice((admissionPage - 1) * admissionPageSize, admissionPage * admissionPageSize),
+    [admissions, admissionPage]
+  );
 
   // Close modals on Escape key
   useEffect(() => {
@@ -376,6 +388,16 @@ const ReceptionistAdmissions = () => {
       const newAdm = res.data.data;
 
       toast.success(res.data.message || 'Patient successfully admitted! Bed assigned.');
+
+      // The pending order was completed; allow future orders for this patient to notify again.
+      try {
+        const key = 'receptionist-dismissed-admission-orders';
+        const dismissedPatients = JSON.parse(sessionStorage.getItem(key) || '[]')
+          .filter(patientId => String(patientId) !== String(form.patient_id));
+        sessionStorage.setItem(key, JSON.stringify(dismissedPatients));
+      } catch (err) {
+        console.warn('Could not clear completed admission notification:', err);
+      }
 
       // Reset form & close modal
       setShowAdmitModal(false);
@@ -746,7 +768,7 @@ const ReceptionistAdmissions = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {admissions.map((a) => (
+                  {paginatedAdmissions.map((a) => (
                     <tr key={a.admission_id}>
                       {/* 1. PATIENT & ADMISSION */}
                       <td style={{ verticalAlign: 'top', padding: '12px 14px' }}>
@@ -925,6 +947,12 @@ const ReceptionistAdmissions = () => {
                   ))}
                 </tbody>
               </table>
+              <ReceptionistPagination
+                page={admissionPage}
+                pageSize={admissionPageSize}
+                total={admissions.length}
+                onPageChange={setAdmissionPage}
+              />
 
               {!loading && !admissions.length && (
                 <div className="empty-state" style={{ padding: 40 }}>
