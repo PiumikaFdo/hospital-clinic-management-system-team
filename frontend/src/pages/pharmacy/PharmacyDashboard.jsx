@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
-import { ClipboardList, CheckCircle2, AlertTriangle, Pill, Clock, ArrowRight } from 'lucide-react';
+import { ClipboardList, CheckCircle2, AlertTriangle, Pill, Clock, ArrowRight, Package } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
 
@@ -11,7 +12,10 @@ const PharmacyDashboard = () => {
   const load = () => {
     API.get('/pharmacy/dashboard')
       .then(r => setData(r.data.data || {}))
-      .catch(console.error)
+      .catch(err => {
+        console.error('Failed to load pharmacy dashboard:', err);
+        toast.error('Failed to load dashboard data');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -38,7 +42,8 @@ const PharmacyDashboard = () => {
         </div>
       ) : (
         <>
-          <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          {/* STATS CARDS GRID */}
+          <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
             <div className="stat-card">
               <div className="stat-icon amber">
                 <Clock size={24} />
@@ -68,28 +73,44 @@ const PharmacyDashboard = () => {
                 <div className="stat-label">Low Stock Inventory Alerts</div>
               </div>
             </div>
+
+            <div className="stat-card">
+              <div className="stat-icon blue">
+                <Package size={24} />
+              </div>
+              <div className="stat-content">
+                <div className="stat-value">{data.total_active_medicines ?? 0}</div>
+                <div className="stat-label">Active Medicines Catalog</div>
+              </div>
+            </div>
           </div>
 
           <div className="dashboard-charts-grid" style={{ gap: 20 }}>
             {/* Pending Prescriptions */}
             <div className="card">
-              <div className="card-header">
-                <div className="card-header-left">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-header-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <ClipboardList size={18} className="text-primary" />
-                  <h3>Dispense Queue</h3>
+                  <h3 style={{ margin: 0 }}>Dispense Queue</h3>
                 </div>
-                <span className="badge badge-warning">Action Required</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="badge badge-warning">Action Required</span>
+                  <Link to="/pharmacy/prescriptions" className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>View All</span>
+                    <ArrowRight size={13} />
+                  </Link>
+                </div>
               </div>
               <div className="card-body">
                 {(data.recent_pending || []).map(p => (
                   <div key={p.prescription_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--slate-100)' }}>
                     <div>
-                      <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--slate-800)' }}>{p.patient_name}</p>
-                      <p style={{ fontSize: 12, color: 'var(--slate-400)' }}>Dr. {p.doctor_name} · {p.total_items} items</p>
+                      <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--slate-800)', margin: '0 0 2px' }}>{p.patient_name}</p>
+                      <p style={{ fontSize: 12, color: 'var(--slate-400)', margin: 0 }}>Dr. {p.doctor_name} · {p.total_items} items</p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <strong style={{ color: 'var(--primary-700)', fontSize: 13 }}>Rs. {Number(p.total_cost).toLocaleString()}</strong>
-                      <button className="btn btn-success btn-sm" onClick={() => dispense(p.prescription_id)}>
+                      <button className="btn btn-success btn-sm" onClick={() => dispense(p.prescription_id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <CheckCircle2 size={13} />
                         <span>Dispense</span>
                       </button>
@@ -97,10 +118,10 @@ const PharmacyDashboard = () => {
                   </div>
                 ))}
                 {!(data.recent_pending || []).length && (
-                  <div className="empty-state" style={{ padding: 24 }}>
-                    <CheckCircle2 size={32} className="empty-icon text-emerald" />
-                    <h4>Prescription queue is clear</h4>
-                    <p>All physician orders have been fulfilled.</p>
+                  <div className="empty-state" style={{ padding: 24, textAlign: 'center' }}>
+                    <CheckCircle2 size={32} className="empty-icon text-emerald" style={{ color: '#10b981', margin: '0 auto 8px' }} />
+                    <h4 style={{ margin: '0 0 4px', fontSize: 14 }}>Prescription queue is clear</h4>
+                    <p style={{ fontSize: 12, color: 'var(--slate-400)', margin: 0 }}>All physician orders have been fulfilled.</p>
                   </div>
                 )}
               </div>
@@ -108,33 +129,39 @@ const PharmacyDashboard = () => {
 
             {/* Low Stock Alert */}
             <div className="card">
-              <div className="card-header">
-                <div className="card-header-left">
-                  <Pill size={18} className="text-danger" />
-                  <h3>Low Inventory Watchlist</h3>
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-header-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Pill size={18} className="text-danger" style={{ color: '#ef4444' }} />
+                  <h3 style={{ margin: 0 }}>Low Inventory Watchlist</h3>
                 </div>
-                <span className="badge badge-danger">Reorder Required</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="badge badge-danger">Reorder Required</span>
+                  <Link to="/pharmacy/inventory" className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>Manage Stock</span>
+                    <ArrowRight size={13} />
+                  </Link>
+                </div>
               </div>
               <div className="card-body">
                 {(data.low_stock_medicines || []).map(m => (
                   <div key={m.medicine_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--slate-100)' }}>
                     <div>
-                      <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--slate-800)' }}>{m.medicine_name}</p>
-                      <p style={{ fontSize: 12, color: 'var(--slate-400)' }}>{m.category} · {m.dosage_form}</p>
+                      <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--slate-800)', margin: '0 0 2px' }}>{m.medicine_name}</p>
+                      <p style={{ fontSize: 12, color: 'var(--slate-400)', margin: 0 }}>{m.category || 'General'} · {m.dosage_form}</p>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <span className={`badge ${m.stock_quantity === 0 ? 'badge-danger' : 'badge-warning'}`}>
                         {m.stock_quantity} units remaining
                       </span>
-                      <p style={{ fontSize: 11, color: 'var(--slate-400)', marginTop: 2 }}>Threshold: {m.reorder_level}</p>
+                      <p style={{ fontSize: 11, color: 'var(--slate-400)', margin: '2px 0 0' }}>Threshold: {m.reorder_level}</p>
                     </div>
                   </div>
                 ))}
                 {!(data.low_stock_medicines || []).length && (
-                  <div className="empty-state" style={{ padding: 24 }}>
-                    <Pill size={32} className="empty-icon text-emerald" />
-                    <h4>All stocks optimal</h4>
-                    <p>No critical reorder thresholds reached.</p>
+                  <div className="empty-state" style={{ padding: 24, textAlign: 'center' }}>
+                    <Pill size={32} className="empty-icon text-emerald" style={{ color: '#10b981', margin: '0 auto 8px' }} />
+                    <h4 style={{ margin: '0 0 4px', fontSize: 14 }}>All stocks optimal</h4>
+                    <p style={{ fontSize: 12, color: 'var(--slate-400)', margin: 0 }}>No critical reorder thresholds reached.</p>
                   </div>
                 )}
               </div>

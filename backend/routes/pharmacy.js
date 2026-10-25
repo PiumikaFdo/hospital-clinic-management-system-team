@@ -22,7 +22,7 @@ router.get('/dashboard', authenticateToken, authorizeRoles('pharmacist'), async 
     );
 
     const [low_meds] = await pool.query(
-      'SELECT * FROM vw_medicine_inventory WHERE stock_status IN ("Low Stock","Out of Stock") LIMIT 10'
+      'SELECT * FROM vw_medicine_inventory WHERE stock_quantity <= reorder_level LIMIT 10'
     );
     const [pending_presc] = await pool.query(
       'SELECT * FROM vw_pending_prescriptions LIMIT 10'
@@ -262,49 +262,33 @@ router.get('/medicines', authenticateToken, authorizeRoles('pharmacist', 'admin'
   try {
     const { stock_status, category, search, active_filter } = req.query;
     
-    // If user wants archived or all, query medicines directly; otherwise use view vw_medicine_inventory
-    let query = '';
+    let query = 
+      SELECT * FROM (
+        SELECT m.*,
+               CASE
+                   WHEN m.stock_quantity = 0 THEN 'Out of Stock'
+                   WHEN m.stock_quantity <= m.reorder_level THEN 'Low Stock'
+                   WHEN DATEDIFF(m.expiry_date, CURDATE()) <= 30 THEN 'Expiring Soon'
+                   ELSE 'Available'
+               END AS stock_status,
+               DATEDIFF(m.expiry_date, CURDATE()) AS days_to_expiry
+        FROM medicines m
+      ) AS inv
+      WHERE 1=1
+    ;
     const params = [];
 
     if (active_filter === 'archived') {
-      query = `
-        SELECT m.medicine_id, m.medicine_name, m.generic_name, m.brand,
-               m.category, m.dosage_form, m.strength, m.unit_price,
-               m.stock_quantity, m.reorder_level, m.expiry_date, m.manufacturer,
-               m.is_active,
-               CASE
-                   WHEN m.stock_quantity = 0 THEN 'Out of Stock'
-                   WHEN m.stock_quantity <= m.reorder_level THEN 'Low Stock'
-                   WHEN DATEDIFF(m.expiry_date, CURDATE()) <= 30 THEN 'Expiring Soon'
-                   ELSE 'Available'
-               END AS stock_status,
-               DATEDIFF(m.expiry_date, CURDATE()) AS days_to_expiry
-        FROM medicines m
-        WHERE m.is_active = FALSE
-      `;
+      query += ' AND is_active = FALSE';
     } else if (active_filter === 'all') {
-      query = `
-        SELECT m.medicine_id, m.medicine_name, m.generic_name, m.brand,
-               m.category, m.dosage_form, m.strength, m.unit_price,
-               m.stock_quantity, m.reorder_level, m.expiry_date, m.manufacturer,
-               m.is_active,
-               CASE
-                   WHEN m.stock_quantity = 0 THEN 'Out of Stock'
-                   WHEN m.stock_quantity <= m.reorder_level THEN 'Low Stock'
-                   WHEN DATEDIFF(m.expiry_date, CURDATE()) <= 30 THEN 'Expiring Soon'
-                   ELSE 'Available'
-               END AS stock_status,
-               DATEDIFF(m.expiry_date, CURDATE()) AS days_to_expiry
-        FROM medicines m
-        WHERE 1=1
-      `;
+      // All medicines
     } else {
-      // Default: Active medicines via vw_medicine_inventory
-      query = 'SELECT *, 1 AS is_active FROM vw_medicine_inventory WHERE 1=1';
+      // Default: Active medicines
+      query += ' AND is_active = TRUE';
     }
 
     if (stock_status && stock_status !== 'ALL') {
-      query += ' AND stock_status = ?';
+      query += ' AND stock_status COLLATE utf8mb4_unicode_ci = ?';
       params.push(stock_status);
     }
     if (category && category !== 'ALL') {
