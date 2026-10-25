@@ -91,7 +91,7 @@ const DoctorDashboard = ({ initialTab }) => {
       ) : (
         <>
           {/* STAT GRID */}
-          <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+          <div className="stat-grid" style={{ marginBottom: 20 }}>
             <div
               className="stat-card"
               style={{ cursor: 'pointer', transition: 'transform 0.15s ease' }}

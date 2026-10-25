@@ -374,15 +374,7 @@ const ReceptionistDashboard = () => {
           {/* ================================================================= */}
           {/* 3. EXECUTIVE KPI METRICS ROW                                      */}
           {/* ================================================================= */}
-          <div
-            className="stats-grid"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-              gap: '16px',
-              marginBottom: '24px'
-            }}
-          >
+          <div className="stats-grid">
             <div className="stat-card" style={{ padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>

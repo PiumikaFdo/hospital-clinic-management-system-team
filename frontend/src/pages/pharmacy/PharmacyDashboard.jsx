@@ -43,7 +43,7 @@ const PharmacyDashboard = () => {
       ) : (
         <>
           {/* STATS CARDS GRID */}
-          <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          <div className="stat-grid" style={{ gap: 16, marginBottom: 24 }}>
             <div className="stat-card">
               <div className="stat-icon amber">
                 <Clock size={24} />

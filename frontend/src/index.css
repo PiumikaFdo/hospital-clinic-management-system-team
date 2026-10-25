@@ -818,9 +818,8 @@ h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    STAT CARDS & DASHBOARDS
    ============================================================ */
-=======
 .stat-grid,
-.stat-grid {
+.stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 18px;
@@ -2454,7 +2453,8 @@ h1, h2, h3, h4, h5, h6 {
   .emergency-badge { display: none; }
   .hero { padding: 90px 16px 40px; }
   .hero-title { font-size: 30px; }
-  .stat-grid { grid-template-columns: 1fr; }
+  .stat-grid,
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid { grid-template-columns: 1fr; }
   .slot-grid { grid-template-columns: repeat(2, 1fr); }
   .footer-top { grid-template-columns: 1fr; }
@@ -3470,6 +3470,5 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--slate-900);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
-
 
 
