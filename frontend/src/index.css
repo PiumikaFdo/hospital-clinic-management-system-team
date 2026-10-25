@@ -818,8 +818,9 @@ h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    STAT CARDS & DASHBOARDS
    ============================================================ */
+=======
 .stat-grid,
-.stats-grid {
+.stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 18px;
@@ -3431,4 +3432,3 @@ h1, h2, h3, h4, h5, h6 {
 
 
 
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
