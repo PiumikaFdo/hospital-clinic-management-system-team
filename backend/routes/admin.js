@@ -177,7 +177,7 @@ router.post('/staff', authenticateToken, authorizeRoles('admin'), async (req, re
     const {
       username, email, password, role, first_name, last_name, phone,
       gender, date_of_birth, dept_id, qualification, specialization,
-      experience_years, joining_date, salary
+      experience_years, joining_date
     } = req.body;
 
     const hash = await bcrypt.hash(password || 'Admin@123', 10);
@@ -198,7 +198,7 @@ router.post('/staff', authenticateToken, authorizeRoles('admin'), async (req, re
         specialization || null,
         parseInt(experience_years, 10) || 0,
         joining_date || new Date().toISOString().split('T')[0],
-        salary || 0.00
+        null // The database trigger assigns salary from the newly created user's role.
       ]
     );
     const [[ids]] = await pool.query('SELECT @uid AS user_id, @sid AS staff_id');
