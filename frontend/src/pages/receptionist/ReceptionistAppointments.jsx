@@ -2,6 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import API from '../../api/axios';
 import DashboardLayout from '../../components/DashboardLayout';
+import DoctorAdmissionOrderAlert from '../../components/DoctorAdmissionOrderAlert';
+import ReceptionistPagination from '../../components/ReceptionistPagination';
 import { toast } from 'react-toastify';
 import {
   Calendar,
@@ -9,6 +11,7 @@ import {
   Clock,
   User,
   Users,
+  UserCheck,
   Search,
   Plus,
   RefreshCw,
@@ -59,6 +62,8 @@ const ReceptionistAppointments = () => {
   const [billingStatusFilter, setBillingStatusFilter] = useState('ALL');
   const [dateFilterMode, setDateFilterMode] = useState('all'); // 'all', 'today', 'tomorrow', 'custom'
   const [customDate, setCustomDate] = useState('');
+  const [appointmentPage, setAppointmentPage] = useState(1);
+  const appointmentPageSize = 10;
 
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -161,23 +166,23 @@ const ReceptionistAppointments = () => {
     }
   };
 
-  const fetchAppointments = async () => {
+  const fetchAppointments = async (showAll = false) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (selectedDoctor) params.append('doctor_id', selectedDoctor);
-      if (selectedStatus && selectedStatus !== 'ALL') params.append('status', selectedStatus);
-      if (billingStatusFilter && billingStatusFilter !== 'ALL') params.append('billing_status', billingStatusFilter);
+      if (!showAll && searchTerm) params.append('search', searchTerm);
+      if (!showAll && selectedDoctor) params.append('doctor_id', selectedDoctor);
+      if (!showAll && selectedStatus && selectedStatus !== 'ALL') params.append('status', selectedStatus);
+      if (!showAll && billingStatusFilter && billingStatusFilter !== 'ALL') params.append('billing_status', billingStatusFilter);
 
       const today = new Date().toISOString().split('T')[0];
-      if (dateFilterMode === 'today') {
+      if (!showAll && dateFilterMode === 'today') {
         params.append('date', today);
-      } else if (dateFilterMode === 'tomorrow') {
+      } else if (!showAll && dateFilterMode === 'tomorrow') {
         const tom = new Date();
         tom.setDate(tom.getDate() + 1);
         params.append('date', tom.toISOString().split('T')[0]);
-      } else if (dateFilterMode === 'custom' && customDate) {
+      } else if (!showAll && dateFilterMode === 'custom' && customDate) {
         params.append('date', customDate);
       }
 
@@ -201,8 +206,26 @@ const ReceptionistAppointments = () => {
   }, []);
 
   useEffect(() => {
+    const handleAppointmentBooked = () => {
+      fetchAppointments(true);
+      fetchMasterData();
+    };
+    window.addEventListener('receptionist:appointment-booked', handleAppointmentBooked);
+    return () => window.removeEventListener('receptionist:appointment-booked', handleAppointmentBooked);
+  }, []);
+
+  useEffect(() => {
     fetchAppointments();
   }, [searchTerm, selectedDoctor, selectedStatus, billingStatusFilter, dateFilterMode, customDate]);
+
+  useEffect(() => {
+    setAppointmentPage(1);
+  }, [searchTerm, selectedDoctor, selectedStatus, billingStatusFilter, dateFilterMode, customDate]);
+
+  const paginatedAppointments = useMemo(
+    () => appointments.slice((appointmentPage - 1) * appointmentPageSize, appointmentPage * appointmentPageSize),
+    [appointments, appointmentPage]
+  );
 
   // Handle URL param patient preselection
   useEffect(() => {
@@ -326,8 +349,14 @@ const ReceptionistAppointments = () => {
         toast.success(res.data.message || 'Appointment booked successfully!');
         setShowCreateModal(false);
         resetCreateForm();
-        fetchAppointments();
-        fetchMasterData(); // Refresh patient count/list
+        setSearchTerm('');
+        setSelectedDoctor('');
+        setSelectedStatus('ALL');
+        setBillingStatusFilter('ALL');
+        setDateFilterMode('all');
+        setCustomDate('');
+        await fetchAppointments(true);
+        await fetchMasterData(); // Refresh patient count/list
       }
     } catch (err) {
       console.error('Error booking appointment:', err);
@@ -372,6 +401,13 @@ const ReceptionistAppointments = () => {
     setCreateSlots([]);
     setCreateDoctorSchedules([]);
     setCreateScheduleMsg('');
+  };
+
+  const openCreateModal = event => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    setShowCreateModal(true);
+    resetCreateForm();
   };
 
   // --------------------------------------------------------------------------
@@ -468,6 +504,9 @@ const ReceptionistAppointments = () => {
         toast.success(res.data.message || 'Consultation invoice processed!');
         setShowBillModal(false);
         fetchAppointments();
+        if (res.data.bill_id) {
+          navigate(`/receptionist/billing?bill_id=${res.data.bill_id}&patient_id=${billForm.patient_id}`);
+        }
       }
     } catch (err) {
       console.error('Error creating bill:', err);
@@ -537,6 +576,7 @@ const ReceptionistAppointments = () => {
 
   return (
     <DashboardLayout title="Appointment Desk & Outpatient Consultations">
+      <DoctorAdmissionOrderAlert />
       {/* 1. TOP STAT CARDS */}
       <div
         className="stats-grid"
@@ -761,10 +801,8 @@ const ReceptionistAppointments = () => {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => {
-                  resetCreateForm();
-                  setShowCreateModal(true);
-                }}
+                onClick={openCreateModal}
+                aria-label="Open new appointment and consultation form"
                 style={{
                   padding: '8px 18px',
                   display: 'flex',
@@ -885,10 +923,10 @@ const ReceptionistAppointments = () => {
 
         <div style={{ padding: '0 20px 20px' }}>
           <div className="table-container" style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="table" style={{ width: '100%', minWidth: '1180px', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 14px', fontSize: '12px', fontWeight: 700, color: '#475569' }}># / TIME</th>
+                  <th style={{ padding: '12px 14px', fontSize: '12px', fontWeight: 700, color: '#475569' }}>VISIT TIME</th>
                   <th style={{ padding: '12px 14px', fontSize: '12px', fontWeight: 700, color: '#475569' }}>PATIENT PROFILE</th>
                   <th style={{ padding: '12px 14px', fontSize: '12px', fontWeight: 700, color: '#475569' }}>DOCTOR & CLINIC</th>
                   <th style={{ padding: '12px 14px', fontSize: '12px', fontWeight: 700, color: '#475569' }}>TYPE & REASON</th>
@@ -898,9 +936,9 @@ const ReceptionistAppointments = () => {
                 </tr>
               </thead>
               <tbody>
-                {appointments.map(a => {
+                {paginatedAppointments.map(a => {
                   const isPaid = a.bill_payment_status === 'Paid';
-                  const isPendingBill = a.bill_payment_status === 'Pending';
+                  const isPendingBill = ['Pending', 'Partial'].includes(a.bill_payment_status);
                   const isUnbilled = !a.bill_id;
 
                   return (
@@ -916,7 +954,7 @@ const ReceptionistAppointments = () => {
                       {/* 1. Appt ID & Time */}
                       <td style={{ padding: '14px', verticalAlign: 'middle' }}>
                         <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
-                          #{a.appointment_id}
+                          Visit {a.appointment_id}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                           <Calendar size={12} />
@@ -1037,9 +1075,9 @@ const ReceptionistAppointments = () => {
                                 cursor: 'pointer',
                                 textDecoration: 'underline'
                               }}
-                              onClick={() => navigate(`/receptionist/billing?bill_id=${a.bill_id}`)}
+                              onClick={() => navigate(`/receptionist/billing?bill_id=${a.bill_id}&patient_id=${a.patient_id}`)}
                             >
-                              Invoice #{a.bill_id}
+                              Invoice {a.bill_id}
                             </div>
                           </div>
                         )}
@@ -1048,7 +1086,7 @@ const ReceptionistAppointments = () => {
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span className="badge badge-warning" style={{ fontSize: '11px' }}>
-                                ⏳ Unpaid Bill
+                                ⏳                                 {a.bill_payment_status === 'Partial' ? 'Partially Paid' : 'Unpaid Bill'}
                               </span>
                               <span style={{ fontSize: '12px', fontWeight: 700, color: '#b45309' }}>
                                 Rs. {Number(a.bill_balance || a.bill_total).toLocaleString()}
@@ -1097,7 +1135,7 @@ const ReceptionistAppointments = () => {
                               }}
                             >
                               <CreditCard size={11} />
-                              Generate Bill
+                              Create Invoice
                             </button>
                           </div>
                         )}
@@ -1153,6 +1191,12 @@ const ReceptionistAppointments = () => {
                 })}
               </tbody>
             </table>
+            <ReceptionistPagination
+              page={appointmentPage}
+              pageSize={appointmentPageSize}
+              total={appointments.length}
+              onPageChange={setAppointmentPage}
+            />
 
             {!loading && appointments.length === 0 && (
               <div style={{ textAlign: 'center', padding: '48px 20px', color: '#94a3b8' }}>
@@ -1164,10 +1208,7 @@ const ReceptionistAppointments = () => {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => {
-                    resetCreateForm();
-                    setShowCreateModal(true);
-                  }}
+                  onClick={openCreateModal}
                   style={{ marginTop: '16px', background: '#7e22ce', borderColor: '#7e22ce' }}
                 >
                   <Plus size={14} /> Book New Consultation
