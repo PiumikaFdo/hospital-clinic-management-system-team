@@ -421,7 +421,15 @@ router.get('/bills', authenticateToken, authorizeRoles('receptionist','admin'), 
       SELECT
         b.bill_id, b.bill_date, b.patient_id, b.admission_id, b.appointment_id,
         b.doctor_fees, b.medicine_cost, b.lab_cost, b.ward_cost, b.hospital_fees,
-        b.discount, b.tax, b.total_amount, b.paid_amount, b.balance_amount, b.payment_status,
+        b.discount, b.tax, b.total_amount,
+        COALESCE(payment_totals.paid_amount, 0) AS paid_amount,
+        GREATEST(0, b.total_amount - COALESCE(payment_totals.paid_amount, 0)) AS balance_amount,
+        CASE
+          WHEN b.payment_status = 'Cancelled' THEN 'Cancelled'
+          WHEN COALESCE(payment_totals.paid_amount, 0) >= b.total_amount THEN 'Paid'
+          WHEN COALESCE(payment_totals.paid_amount, 0) > 0 THEN 'Partial'
+          ELSE 'Pending'
+        END AS payment_status,
         CONCAT(pu.first_name,' ',pu.last_name) AS patient_name,
         pat.patient_code, pu.phone,
         CONCAT(ru.first_name,' ',ru.last_name) AS receptionist_name,
@@ -431,6 +439,11 @@ router.get('/bills', authenticateToken, authorizeRoles('receptionist','admin'), 
       JOIN users pu ON pat.user_id = pu.user_id
       LEFT JOIN staff rs ON b.receptionist_id = rs.staff_id
       LEFT JOIN users ru ON rs.user_id = ru.user_id
+      LEFT JOIN (
+        SELECT bill_id, SUM(amount) AS paid_amount
+        FROM payments
+        GROUP BY bill_id
+      ) payment_totals ON payment_totals.bill_id = b.bill_id
       LEFT JOIN admissions ad ON b.admission_id = ad.admission_id
       LEFT JOIN wards w ON ad.ward_id = w.ward_id
       LEFT JOIN beds bed ON ad.bed_id = bed.bed_id
@@ -462,7 +475,15 @@ router.get('/bills/:id', authenticateToken, authorizeRoles('receptionist','admin
       SELECT
         b.bill_id, b.bill_date, b.patient_id, b.receptionist_id, b.appointment_id, b.admission_id,
         b.doctor_fees, b.medicine_cost, b.lab_cost, b.ward_cost, b.hospital_fees,
-        b.discount, b.tax, b.total_amount, b.paid_amount, b.balance_amount, b.payment_status,
+        b.discount, b.tax, b.total_amount,
+        COALESCE(payment_totals.paid_amount, 0) AS paid_amount,
+        GREATEST(0, b.total_amount - COALESCE(payment_totals.paid_amount, 0)) AS balance_amount,
+        CASE
+          WHEN b.payment_status = 'Cancelled' THEN 'Cancelled'
+          WHEN COALESCE(payment_totals.paid_amount, 0) >= b.total_amount THEN 'Paid'
+          WHEN COALESCE(payment_totals.paid_amount, 0) > 0 THEN 'Partial'
+          ELSE 'Pending'
+        END AS payment_status,
         CONCAT(pu.first_name,' ',pu.last_name) AS patient_name,
         pat.patient_code, pat.blood_group, pu.phone, pu.gender, pu.address,
         TIMESTAMPDIFF(YEAR, pu.date_of_birth, CURDATE()) AS patient_age,
@@ -478,6 +499,11 @@ router.get('/bills/:id', authenticateToken, authorizeRoles('receptionist','admin
       JOIN users pu ON pat.user_id = pu.user_id
       LEFT JOIN staff rs ON b.receptionist_id = rs.staff_id
       LEFT JOIN users ru ON rs.user_id = ru.user_id
+      LEFT JOIN (
+        SELECT bill_id, SUM(amount) AS paid_amount
+        FROM payments
+        GROUP BY bill_id
+      ) payment_totals ON payment_totals.bill_id = b.bill_id
       LEFT JOIN admissions ad ON b.admission_id = ad.admission_id
       LEFT JOIN wards w ON ad.ward_id = w.ward_id
       LEFT JOIN beds bed ON ad.bed_id = bed.bed_id
@@ -498,13 +524,84 @@ router.get('/bills/:id', authenticateToken, authorizeRoles('receptionist','admin
 
 // POST /api/receptionist/payments  (Process payment)
 router.post('/payments', authenticateToken, authorizeRoles('receptionist'), async (req, res) => {
+  let connection;
+  let transactionStarted = false;
   try {
     const { bill_id, amount, payment_method, transaction_reference } = req.body;
+<<<<<<< Updated upstream
     await pool.query('CALL sp_process_payment(?,?,?,?,?)',
       [bill_id, amount, payment_method, transaction_reference || null, req.user.staff_id]);
+=======
+    const paymentAmount = Number(amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero' });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+    const [billRows] = await connection.query(
+      `SELECT bills.total_amount,
+              GREATEST(0, bills.total_amount - COALESCE(payment_totals.paid_amount, 0)) AS balance_amount,
+              bills.payment_status
+       FROM bills
+       LEFT JOIN (
+         SELECT bill_id, SUM(amount) AS paid_amount
+         FROM payments
+         GROUP BY bill_id
+       ) payment_totals ON payment_totals.bill_id = bills.bill_id
+       WHERE bills.bill_id = ? FOR UPDATE`,
+      [bill_id]
+    );
+    if (!billRows.length) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
+    }
+    if (billRows[0].payment_status === 'Cancelled' || Number(billRows[0].balance_amount) <= 0) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: 'This invoice is already fully settled' });
+    }
+    if (paymentAmount > Number(billRows[0].balance_amount)) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero and cannot exceed the outstanding balance' });
+    }
+    await connection.query(
+      `INSERT INTO payments (bill_id, amount, payment_method, transaction_reference, received_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [bill_id, paymentAmount, payment_method, transaction_reference || null, req.user.staff_id]
+    );
+    const [[paymentTotals]] = await connection.query(
+      'SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payments WHERE bill_id = ?',
+      [bill_id]
+    );
+    await connection.query(
+      `UPDATE bills
+       SET paid_amount = ?,
+           balance_amount = GREATEST(0, total_amount - ?),
+           payment_status = CASE
+             WHEN payment_status = 'Cancelled' THEN 'Cancelled'
+             WHEN ? >= total_amount THEN 'Paid'
+             WHEN ? > 0 THEN 'Partial'
+             ELSE 'Pending'
+           END
+       WHERE bill_id = ?`,
+      [paymentTotals.paid_amount, paymentTotals.paid_amount, paymentTotals.paid_amount, paymentTotals.paid_amount, bill_id]
+    );
+    await connection.commit();
+    transactionStarted = false;
+>>>>>>> Stashed changes
     res.json({ success: true, message: 'Payment processed successfully' });
   } catch (err) {
+    if (transactionStarted) {
+      await connection.rollback();
+    }
+    console.error('Error processing payment:', err);
     res.status(400).json({ success: false, message: err.sqlMessage || 'Payment failed' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
@@ -513,11 +610,23 @@ router.get('/payments', authenticateToken, authorizeRoles('receptionist','admin'
   try {
     const { payment_method, patient_id, date, start_date, end_date, limit } = req.query;
     let q = `
-      SELECT p.*, b.total_amount, b.balance_amount, b.payment_status,
+      SELECT p.*, b.total_amount,
+             GREATEST(0, b.total_amount - COALESCE(payment_totals.paid_amount, 0)) AS balance_amount,
+             CASE
+               WHEN b.payment_status = 'Cancelled' THEN 'Cancelled'
+               WHEN COALESCE(payment_totals.paid_amount, 0) >= b.total_amount THEN 'Paid'
+               WHEN COALESCE(payment_totals.paid_amount, 0) > 0 THEN 'Partial'
+               ELSE 'Pending'
+             END AS payment_status,
              CONCAT(pu.first_name,' ',pu.last_name) AS patient_name, pat.patient_code,
              CONCAT(ru.first_name,' ',ru.last_name) AS received_by_name
       FROM payments p
       JOIN bills b ON p.bill_id = b.bill_id
+      LEFT JOIN (
+        SELECT bill_id, SUM(amount) AS paid_amount
+        FROM payments
+        GROUP BY bill_id
+      ) payment_totals ON payment_totals.bill_id = b.bill_id
       JOIN patients pat ON b.patient_id = pat.patient_id
       JOIN users pu ON pat.user_id = pu.user_id
       LEFT JOIN staff rs ON p.received_by = rs.staff_id
@@ -602,7 +711,8 @@ router.get('/admissions', authenticateToken, authorizeRoles('receptionist','admi
         ns.staff_id AS nurse_staff_id,
         CONCAT(nu.first_name,' ',nu.last_name) AS nurse_name,
         bi.bill_id, bi.total_amount AS bill_total, bi.paid_amount AS bill_paid,
-        bi.balance_amount AS bill_balance, bi.payment_status AS bill_status
+        GREATEST(0, bi.total_amount - bi.paid_amount) AS bill_balance,
+        bi.payment_status AS bill_status
       FROM admissions ad
       JOIN patients p ON ad.patient_id = p.patient_id
       JOIN users pu ON p.user_id = pu.user_id
@@ -799,7 +909,10 @@ router.get('/pending-admission-orders', authenticateToken, authorizeRoles('recep
         AND NOT EXISTS (
           SELECT 1 FROM admissions ad
           WHERE ad.patient_id = a.patient_id
-            AND ad.status = 'Active'
+            AND (
+              ad.status = 'Active'
+              OR ad.admission_date >= a.created_at
+            )
         )
       ORDER BY a.appointment_date DESC, a.appointment_time DESC
     `);
@@ -922,7 +1035,7 @@ router.put('/admissions/:id/discharge', authenticateToken, authorizeRoles('recep
       notes,
       generate_bill = true,
       doctor_fees = 0,
-      hospital_fees = 500,
+      hospital_fees = 0,
       discount = 0,
       tax_rate = 0
     } = req.body;
@@ -930,6 +1043,7 @@ router.put('/admissions/:id/discharge', authenticateToken, authorizeRoles('recep
 
     const [existing] = await pool.query(
       `SELECT ad.admission_id, ad.status, ad.bed_id, ad.ward_id, ad.patient_id, ad.doctor_id,
+              ad.admission_date,
               w.daily_rate
        FROM admissions ad
        LEFT JOIN wards w ON ad.ward_id = w.ward_id
@@ -958,7 +1072,7 @@ router.put('/admissions/:id/discharge', authenticateToken, authorizeRoles('recep
     // 2. Handle bill creation or finalization upon discharge
     if (generate_bill) {
       const [existingBills] = await pool.query(
-        'SELECT bill_id, total_amount, balance_amount, payment_status, ward_cost FROM bills WHERE admission_id = ?',
+        'SELECT bill_id FROM bills WHERE admission_id = ?',
         [admissionId]
       );
 
@@ -971,43 +1085,69 @@ router.put('/admissions/:id/discharge', authenticateToken, authorizeRoles('recep
           null, // appointment_id
           admissionId,
           parseFloat(doctor_fees) || 0,
-          parseFloat(hospital_fees) !== undefined ? parseFloat(hospital_fees) : 500,
+          Number(hospital_fees) || 0,
           parseFloat(discount) || 0,
           parseFloat(tax_rate) || 0
         ]);
         const [[{ bid }]] = await pool.query('SELECT @bid AS bid');
         billId = bid;
-
-        const [[newBill]] = await pool.query(
-          'SELECT bill_id, total_amount, ward_cost, balance_amount, payment_status FROM bills WHERE bill_id = ?',
-          [bid]
-        );
-        billDetails = newBill;
       } else {
-        // Bill already exists, lock in final ward cost if still pending/partial
         billId = existingBills[0].bill_id;
-        const currentBill = existingBills[0];
-        if (currentBill.payment_status !== 'Paid') {
-          const [[daysRow]] = await pool.query('SELECT fn_admission_days(?) AS final_days', [admissionId]);
-          const finalDays = daysRow?.final_days || 1;
-          const finalWardCost = finalDays * (existing[0].daily_rate || 0);
-
-          await pool.query(
-            `UPDATE bills 
-             SET ward_cost = ?,
-                 total_amount = fn_calculate_bill_total(doctor_fees, medicine_cost, lab_cost, ?, hospital_fees, discount, 0),
-                 balance_amount = fn_calculate_bill_total(doctor_fees, medicine_cost, lab_cost, ?, hospital_fees, discount, 0) - paid_amount
-             WHERE bill_id = ?`,
-            [finalWardCost, finalWardCost, finalWardCost, billId]
-          );
-        }
-
-        const [[updatedBill]] = await pool.query(
-          'SELECT bill_id, total_amount, ward_cost, balance_amount, payment_status FROM bills WHERE bill_id = ?',
-          [billId]
-        );
-        billDetails = updatedBill;
       }
+
+      const [[stayDetails]] = await pool.query(
+        `SELECT
+           GREATEST(1, DATEDIFF(DATE(COALESCE(discharge_date, NOW())), DATE(admission_date))) AS billable_days,
+           ROUND(
+             GREATEST(1, DATEDIFF(DATE(COALESCE(discharge_date, NOW())), DATE(admission_date))) *
+             COALESCE(w.daily_rate, 0),
+             2
+           ) AS ward_cost
+         FROM admissions ad
+         LEFT JOIN wards w ON w.ward_id = ad.ward_id
+         WHERE ad.admission_id = ?`,
+        [admissionId]
+      );
+      const hospitalFeeAmount = Math.max(0, Number(hospital_fees) || 0);
+      const [[billAmounts]] = await pool.query(
+        `SELECT doctor_fees, medicine_cost, lab_cost, discount, tax
+         FROM bills WHERE bill_id = ?`,
+        [billId]
+      );
+      const [[paymentTotals]] = await pool.query(
+        'SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payments WHERE bill_id = ?',
+        [billId]
+      );
+      const totalAmount = Math.max(
+        0,
+        Number(billAmounts.doctor_fees || 0) +
+          Number(billAmounts.medicine_cost || 0) +
+          Number(billAmounts.lab_cost || 0) +
+          Number(stayDetails.ward_cost || 0) +
+          hospitalFeeAmount -
+          Number(billAmounts.discount || 0) +
+          Number(billAmounts.tax || 0)
+      );
+      const roundedTotal = Math.round((totalAmount + Number.EPSILON) * 100) / 100;
+      const paidAmount = Number(paymentTotals.paid_amount || 0);
+      const balanceAmount = Math.max(0, Math.round((roundedTotal - paidAmount + Number.EPSILON) * 100) / 100);
+      const paymentStatus = paidAmount >= roundedTotal ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Pending';
+
+      await pool.query(
+        `UPDATE bills
+         SET ward_cost = ?, hospital_fees = ?, total_amount = ?, paid_amount = ?,
+             balance_amount = ?, payment_status = CASE
+               WHEN payment_status = 'Cancelled' THEN 'Cancelled'
+               ELSE ?
+             END
+         WHERE bill_id = ?`,
+        [stayDetails.ward_cost, hospitalFeeAmount, roundedTotal, paidAmount, balanceAmount, paymentStatus, billId]
+      );
+      const [[finalBill]] = await pool.query(
+        'SELECT bill_id, total_amount, ward_cost, balance_amount, payment_status FROM bills WHERE bill_id = ?',
+        [billId]
+      );
+      billDetails = finalBill;
     }
 
     res.json({
@@ -1067,7 +1207,7 @@ router.get('/appointments', authenticateToken, authorizeRoles('receptionist', 'a
         b.bill_id,
         b.total_amount AS bill_total,
         b.paid_amount AS bill_paid,
-        b.balance_amount AS bill_balance,
+        GREATEST(0, b.total_amount - b.paid_amount) AS bill_balance,
         b.payment_status AS bill_payment_status,
         DATE_FORMAT(b.bill_date, '%Y-%m-%d') AS bill_date
       FROM appointments a

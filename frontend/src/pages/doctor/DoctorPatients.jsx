@@ -978,25 +978,6 @@ const DoctorPatients = () => {
                   </div>
                 </div>
 
-                {/* Receptionist Integration Note Banner */}
-                <div
-                  style={{
-                    background: '#eff6ff',
-                    border: '1px solid #bfdbfe',
-                    borderRadius: 8,
-                    padding: '10px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    fontSize: 12,
-                    color: '#1e40af'
-                  }}
-                >
-                  <span style={{ fontSize: 18 }}>⚡</span>
-                  <div>
-                    <strong>Receptionist Workflow Integration:</strong> Submitting this order will immediately register a clinical admission order under your name. When the receptionist opens <strong>Patient Ward Admission Intake</strong>, your name, ward recommendation ({admitForm.ward_category}), priority ({admitForm.priority}), and diagnosis will automatically pre-fill via the <strong>⚡ Auto-Fill Doctor Order</strong> system.
-                  </div>
-                </div>
               </form>
             </div>
 

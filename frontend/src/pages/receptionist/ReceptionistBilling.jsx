@@ -1,5 +1,10 @@
+<<<<<<< Updated upstream
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+=======
+import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+>>>>>>> Stashed changes
 import { toast } from 'react-toastify';
 import {
   Printer,
@@ -56,6 +61,11 @@ const ReceptionistBilling = () => {
     payment_method: 'Cash',
     transaction_reference: ''
   });
+<<<<<<< Updated upstream
+=======
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const paymentSubmissionInProgress = useRef(false);
+>>>>>>> Stashed changes
 
   // Printable modal state
   const [printModalState, setPrintModalState] = useState({
@@ -184,6 +194,14 @@ const ReceptionistBilling = () => {
 
   const processPayment = async e => {
     e.preventDefault();
+<<<<<<< Updated upstream
+=======
+    if (paymentSubmissionInProgress.current) return;
+    if (!showPayModal || showPayModal.payment_status === 'Paid' || Number(showPayModal.balance_amount) <= 0) {
+      toast.info('This invoice is already fully settled.');
+      return;
+    }
+>>>>>>> Stashed changes
     const payAmt = Number(payForm.amount);
     if (!payAmt || payAmt <= 0) {
       toast.error('Please enter a valid payment amount');
@@ -195,6 +213,11 @@ const ReceptionistBilling = () => {
     }
 
     try {
+<<<<<<< Updated upstream
+=======
+      paymentSubmissionInProgress.current = true;
+      setProcessingPayment(true);
+>>>>>>> Stashed changes
       await API.post('/receptionist/payments', {
         bill_id: showPayModal.bill_id,
         amount: payAmt,
@@ -211,6 +234,12 @@ const ReceptionistBilling = () => {
       handleOpenPrintReceipt(paidBillId, null, 'thermal');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Payment processing failed');
+<<<<<<< Updated upstream
+=======
+    } finally {
+      paymentSubmissionInProgress.current = false;
+      setProcessingPayment(false);
+>>>>>>> Stashed changes
     }
   };
 
