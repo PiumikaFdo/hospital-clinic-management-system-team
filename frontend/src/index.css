@@ -810,9 +810,8 @@ h1, h2, h3, h4, h5, h6 {
 /* ============================================================
    STAT CARDS & DASHBOARDS
    ============================================================ */
-=======
 .stat-grid,
-.stat-grid {
+.stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 18px;
@@ -3417,6 +3416,5 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--slate-900);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
-
 
 
